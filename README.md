@@ -4,7 +4,7 @@
 ![XFCE](https://img.shields.io/badge/XFCE-2284F2?style=for-the-badge&logo=xfce&logoColor=white)
 ![Status](https://img.shields.io/badge/Status-Em_Desenvolvimento-brightgreen?style=for-the-badge)
 
-O **hobbOS** é uma distribuição Linux customizada (Respin) baseada no poderoso **Arch Linux**. Nascido como um projeto de estudo profundo sobre arquitetura de sistemas operacionais, o objetivo do hobbOS é unir a base moderna, rolling-release e minimalista do Arch com uma experiência visual profundamente nostálgica, recriando a interface clássica do Windows XP.
+O **hobbOS** é uma distribuição Linux customizada (Respin) baseada no **Arch Linux**. Nascido como um projeto de estudo profundo sobre arquitetura de sistemas operacionais, o objetivo do hobbOS é unir a base moderna, rolling-release e minimalista do Arch com uma experiência visual profundamente nostálgica, recriando a interface clássica do Windows XP.
 
 ## ✨ Características Principais
 
