@@ -1,0 +1,10 @@
+[Trigger]
+Operation = Install
+Type = Package
+Target = glibc
+
+[Action]
+Description = Gerando locales do HobbOS (pt_BR, en_US)...
+When = PostTransaction
+Depends = glibc
+Exec = /usr/bin/locale-gen
