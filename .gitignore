@@ -1,0 +1,11 @@
+# OpenTofu
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/terraform.tfvars
+
+# Saída do mkarchiso
+out/
+work/
+*.iso
+infra/tfplan
