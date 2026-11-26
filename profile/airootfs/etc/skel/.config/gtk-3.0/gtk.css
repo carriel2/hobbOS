@@ -1,0 +1,42 @@
+/* HobbOS: barra de tarefas azul e botão Iniciar verde, no estilo dos anos 2000 */
+
+.xfce4-panel.background {
+  background-color: #245edb;
+  background-image: linear-gradient(to bottom,
+    #3f8cf3 0%, #2a6ee8 10%, #245edb 45%, #2058d3 85%, #1941a5 100%);
+  color: #ffffff;
+}
+
+.xfce4-panel.background label,
+.xfce4-panel.background button {
+  color: #ffffff;
+}
+
+#whiskermenu-button {
+  background-image: linear-gradient(to bottom,
+    #5fb85f 0%, #3c9a3c 20%, #378f37 70%, #2d7a2d 100%);
+  border: none;
+  border-radius: 0 12px 12px 0;
+  box-shadow: inset -1px 0 2px rgba(0, 0, 0, 0.35);
+  padding: 0 16px 0 8px;
+  margin: 0;
+}
+
+#whiskermenu-button label {
+  color: #ffffff;
+  font-weight: bold;
+  font-style: italic;
+  font-size: 13px;
+  text-shadow: 1px 1px 1px #1b4d1b;
+}
+
+#whiskermenu-button:hover {
+  background-image: linear-gradient(to bottom,
+    #78cc78 0%, #4fae4f 20%, #44a144 70%, #378f37 100%);
+}
+
+/* área da bandeja e relógio, em azul mais claro */
+#systray, #clock-button, #pulseaudio-button {
+  background-color: #0f8de8;
+  background-image: linear-gradient(to bottom, #19a6f5, #0d8be0 50%, #0b78c9);
+}

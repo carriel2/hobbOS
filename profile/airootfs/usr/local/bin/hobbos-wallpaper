@@ -1,0 +1,22 @@
+#!/bin/sh
+# Aplica o wallpaper do HobbOS em todos os monitores no login.
+# O xfdesktop guarda o wallpaper por nome de monitor (Virtual-1, eDP-1, VGA-1...),
+# que muda de máquina para máquina; por isso não dá para deixar fixo no /etc/skel.
+IMG=/usr/share/backgrounds/hobbos/hobbos-colina.png
+
+# espera o xfdesktop subir
+for _ in $(seq 1 30); do
+  pgrep -u "$(id -u)" -x xfdesktop >/dev/null && break
+  sleep 1
+done
+
+for mon in $(xrandr --listmonitors 2>/dev/null | awk 'NR > 1 { print $NF }'); do
+  base=/backdrop/screen0/monitor$mon/workspace0
+  xfconf-query -c xfce4-desktop -p "$base/last-image" -n -t string -s "$IMG"
+  xfconf-query -c xfce4-desktop -p "$base/image-style" -n -t int -s 5   # ampliar
+done
+
+# e em qualquer entrada que o xfdesktop já tenha criado
+for p in $(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep '/last-image$'); do
+  xfconf-query -c xfce4-desktop -p "$p" -s "$IMG"
+done

@@ -1,6 +1,7 @@
 #cloud-config
 # Prepara o Arch para gerar a ISO: sistema atualizado + archiso + git.
 # qemu-base, edk2-ovmf e python rodam o tests/smoke-test.sh (sem KVM aninhado, fica lento).
+# librsvg e ttf-dejavu renderizam os SVGs de branding/ (branding/render.sh).
 hostname: hobbos-build
 growpart:
   mode: auto
@@ -10,5 +11,5 @@ runcmd:
   - pacman-key --populate archlinux
   - pacman -Sy --noconfirm archlinux-keyring
   - pacman -Su --noconfirm
-  - pacman -S --noconfirm --needed archiso git vim qemu-base edk2-ovmf python
+  - pacman -S --noconfirm --needed archiso git vim qemu-base edk2-ovmf python librsvg ttf-dejavu
   - touch /var/lib/hobbos-build-ready

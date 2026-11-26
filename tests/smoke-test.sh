@@ -78,7 +78,9 @@ done
 echo "ok: sistema no ar, guest agent respondendo (${t}s)"
 
 wait_for "desktop XFCE do usuário hobbos" 180 "pgrep -u hobbos -x xfce4-session" || fails=$((fails + 1))
-sleep 10
+wait_for "painel e área de trabalho desenhados" 90 \
+  "pgrep -u hobbos -x xfce4-panel && pgrep -u hobbos -x xfdesktop" || fails=$((fails + 1))
+sleep 15 # tempo para o wallpaper ser aplicado e a tela redesenhar
 screenshot desktop
 
 check "idioma pt_BR"          "localectl status"                          "LANG=pt_BR.UTF-8"
@@ -95,6 +97,22 @@ if [[ $code -eq 0 && $out =~ node\.name\ =\ \"alsa_output ]]; then
 else
   echo "FALHA: PipeWire sem saída de áudio -> $(echo "$out" | tr '\n' ' ' | cut -c1-200)"; fails=$((fails + 1))
 fi
+
+# Visual retrô: tema, ícones, painel com Iniciar e wallpaper do HobbOS
+user_check() { # descrição  comando-como-hobbos  regex
+  local out code
+  out=$(as_user "$2" 30); code=$?
+  if [[ $code -eq 0 && $out =~ $3 ]]; then
+    echo "ok: $1 -> $(echo "$out" | tr '\n' ' ' | cut -c1-100)"
+  else
+    echo "FALHA: $1 (código $code) -> $(echo "$out" | tr '\n' ' ' | cut -c1-200)"; fails=$((fails + 1))
+  fi
+}
+user_check "tema GTK HobbOS-Luna"   "xfconf-query -c xsettings -p /Net/ThemeName"        "^HobbOS-Luna"
+user_check "tema de janelas HobbOS-Luna" "xfconf-query -c xfwm4 -p /general/theme"      "^HobbOS-Luna"
+user_check "ícones nuoveXT2"        "xfconf-query -c xsettings -p /Net/IconThemeName"    "^nuoveXT2"
+user_check "botão Iniciar no painel" "xfconf-query -c xfce4-panel -p /plugins/plugin-1/button-title" "^Iniciar"
+user_check "wallpaper do HobbOS"    "xfconf-query -c xfce4-desktop -l -v | grep last-image" "hobbos-colina\.png"
 
 # Firefox: abre uma página e confere se o processo fica de pé
 guest "runuser -u hobbos -- env XDG_RUNTIME_DIR=/run/user/1000 DISPLAY=:0 XAUTHORITY=/home/hobbos/.Xauthority setsid -f firefox https://archlinux.org >/dev/null 2>&1" 15 >/dev/null
