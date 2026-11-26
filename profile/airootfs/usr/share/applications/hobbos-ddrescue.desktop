@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=ddrescue (copiar disco com defeito)
+Comment=Copia um disco com setores ruins; abre um terminal com a ajuda
+Exec=sudo sh -c 'ddrescue --help | less'
+Icon=drive-harddisk
+Terminal=true
+Categories=System;
+Keywords=resgate;recuperar;disco;

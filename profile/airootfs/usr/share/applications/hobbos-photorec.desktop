@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=PhotoRec (recuperar arquivos)
+Comment=Recupera fotos, documentos e outros arquivos apagados
+Exec=sudo photorec
+Icon=document-open-recent
+Terminal=true
+Categories=System;
+Keywords=resgate;recuperar;disco;

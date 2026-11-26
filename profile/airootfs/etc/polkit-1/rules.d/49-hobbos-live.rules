@@ -1,0 +1,7 @@
+// Sessão live do HobbOS: o usuário hobbos não tem senha, então quem está no grupo
+// wheel faz ações administrativas (GParted, GSmartControl, montar discos) sem autenticar.
+polkit.addRule(function(action, subject) {
+    if (subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+});

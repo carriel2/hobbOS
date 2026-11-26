@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Clonezilla (clonar e salvar disco)
+Comment=Clona discos e partições ou salva uma imagem para restaurar depois
+Exec=sudo clonezilla
+Icon=media-optical
+Terminal=true
+Categories=System;
+Keywords=resgate;recuperar;disco;

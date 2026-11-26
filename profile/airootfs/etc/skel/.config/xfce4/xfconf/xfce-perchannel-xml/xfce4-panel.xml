@@ -28,6 +28,16 @@
       <property name="button-icon" type="string" value="/usr/share/pixmaps/hobbos-start.svg"/>
       <property name="show-button-title" type="bool" value="true"/>
       <property name="show-button-icon" type="bool" value="true"/>
+      <property name="favorites" type="array">
+        <value type="string" value="firefox.desktop"/>
+        <value type="string" value="thunar.desktop"/>
+        <value type="string" value="xfce4-terminal.desktop"/>
+        <value type="string" value="gparted.desktop"/>
+        <value type="string" value="gsmartcontrol.desktop"/>
+        <value type="string" value="hobbos-testdisk.desktop"/>
+        <value type="string" value="hobbos-photorec.desktop"/>
+        <value type="string" value="hobbos-clonezilla.desktop"/>
+      </property>
     </property>
     <property name="plugin-2" type="string" value="tasklist">
       <property name="show-labels" type="bool" value="true"/>
