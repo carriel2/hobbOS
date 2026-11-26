@@ -85,6 +85,12 @@ resource "openstack_compute_instance_v2" "build" {
     port = openstack_networking_port_v2.build.id
   }
 
+  # O cloud-init só roda no primeiro boot: mudar o arquivo não deve recriar a VM sozinho.
+  # Para aplicar um cloud-init novo: tofu apply -replace=openstack_compute_instance_v2.build
+  lifecycle {
+    ignore_changes = [user_data]
+  }
+
   block_device {
     uuid                  = data.openstack_images_image_v2.arch.id
     source_type           = "image"
