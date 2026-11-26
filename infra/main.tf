@@ -77,7 +77,6 @@ resource "openstack_compute_instance_v2" "build" {
 
   name        = "${var.name}-build"
   flavor_name = var.flavor
-  image_id    = data.openstack_images_image_v2.arch.id
   key_pair    = openstack_compute_keypair_v2.admin.name
   user_data   = file("${path.module}/cloud-init.yaml")
 
