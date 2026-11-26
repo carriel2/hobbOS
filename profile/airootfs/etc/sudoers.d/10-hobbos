@@ -1,0 +1,2 @@
+# Sessão live: o usuário hobbos usa sudo sem senha.
+hobbos ALL=(ALL:ALL) NOPASSWD: ALL
