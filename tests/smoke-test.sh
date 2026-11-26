@@ -121,5 +121,18 @@ screenshot firefox
 check "Firefox aberto"        "pgrep -u hobbos -c firefox"                "^[1-9]"
 check "Firefox em pt-BR instalado" "ls /usr/lib/firefox/browser/extensions/" "pt-BR"
 
+# Ferramentas de resgate
+check "ferramentas de resgate instaladas" \
+  "for c in gparted gsmartcontrol testdisk photorec ddrescue clonezilla partclone.ntfs smartctl chntpw ntfsfix; do command -v \$c >/dev/null || echo FALTA:\$c; done; echo fim" \
+  "^fim"
+check "favoritos do menu Iniciar existem" \
+  "for f in \$(runuser -u hobbos -- env XDG_RUNTIME_DIR=/run/user/1000 DISPLAY=:0 xfconf-query -c xfce4-panel -p /plugins/plugin-1/favorites | grep desktop); do test -f /usr/share/applications/\$f || echo FALTA:\$f; done; echo fim" \
+  "^fim"
+user_check "admin sem senha via polkit (pkexec)" "pkexec --disable-internal-agent /usr/bin/id -u" "^0"
+guest "runuser -u hobbos -- env XDG_RUNTIME_DIR=/run/user/1000 DISPLAY=:0 XAUTHORITY=/home/hobbos/.Xauthority setsid -f gparted >/dev/null 2>&1" 15 >/dev/null
+sleep 20
+screenshot gparted
+check "GParted aberto como root" "pgrep -u root -x gpartedbin"    "^[0-9]+"
+
 echo "== resultado: $fails falha(s). Capturas em $OUT"
 exit $(( fails > 0 ))

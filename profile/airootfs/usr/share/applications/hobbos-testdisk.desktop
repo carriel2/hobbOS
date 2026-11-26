@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=TestDisk (recuperar partições)
+Comment=Recupera partições apagadas e torna discos inicializáveis de novo
+Exec=sudo testdisk
+Icon=drive-harddisk
+Terminal=true
+Categories=System;
+Keywords=resgate;recuperar;disco;

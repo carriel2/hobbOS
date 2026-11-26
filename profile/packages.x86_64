@@ -157,6 +157,11 @@ firefox-i18n-pt-br
 # ── HobbOS: visual retrô ──
 lxde-icon-theme
 xorg-xrandr
+# ── HobbOS: resgate (as CLIs já vêm do releng) ──
+gparted
+gsmartcontrol
+chntpw
+ntfs-3g
 # ── HobbOS: fontes ──
 ttf-dejavu
 noto-fonts
