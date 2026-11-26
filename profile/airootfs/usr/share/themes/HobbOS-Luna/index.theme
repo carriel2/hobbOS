@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=X-GNOME-Metatheme
+Name=HobbOS Luna
+Comment=Tema retrô do HobbOS, derivado do "Windows XP Luna" do B00merang Project (GPL-3.0)
+Encoding=UTF-8
+
+[X-GNOME-Metatheme]
+GtkTheme=HobbOS-Luna
+MetacityTheme=HobbOS-Luna
+IconTheme=nuoveXT2
+ButtonLayout=:minimize,maximize,close
