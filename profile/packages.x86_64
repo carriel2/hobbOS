@@ -153,6 +153,10 @@ pipewire-alsa
 wireplumber
 pavucontrol
 firefox
+firefox-i18n-pt-br
+# ── HobbOS: visual retrô ──
+lxde-icon-theme
+xorg-xrandr
 # ── HobbOS: fontes ──
 ttf-dejavu
 noto-fonts

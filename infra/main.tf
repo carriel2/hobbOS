@@ -77,12 +77,17 @@ resource "openstack_compute_instance_v2" "build" {
 
   name        = "${var.name}-build"
   flavor_name = var.flavor
-  image_id    = data.openstack_images_image_v2.arch.id
   key_pair    = openstack_compute_keypair_v2.admin.name
   user_data   = file("${path.module}/cloud-init.yaml")
 
   network {
     port = openstack_networking_port_v2.build.id
+  }
+
+  # O cloud-init só roda no primeiro boot: mudar o arquivo não deve recriar a VM sozinho.
+  # Para aplicar um cloud-init novo: tofu apply -replace=openstack_compute_instance_v2.build
+  lifecycle {
+    ignore_changes = [user_data]
   }
 
   block_device {

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!-- Wallpaper original do HobbOS: céu de fim de tarde azul e colinas verdes, no clima dos anos 2000 -->
+  <defs>
+    <linearGradient id="ceu" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d5fbf"/>
+      <stop offset="0.55" stop-color="#5a9be6"/>
+      <stop offset="1" stop-color="#bfe0fb"/>
+    </linearGradient>
+    <linearGradient id="colinaFundo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7cc46a"/>
+      <stop offset="1" stop-color="#3f8f3a"/>
+    </linearGradient>
+    <linearGradient id="colinaFrente" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8fd35a"/>
+      <stop offset="0.5" stop-color="#4ea83a"/>
+      <stop offset="1" stop-color="#2c6e25"/>
+    </linearGradient>
+    <radialGradient id="sol" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fffbe0" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#fffbe0" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="borra" x="-20%" y="-50%" width="140%" height="200%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#ceu)"/>
+  <circle cx="1500" cy="260" r="260" fill="url(#sol)"/>
+  <g fill="#ffffff" opacity="0.85" filter="url(#borra)">
+    <ellipse cx="380" cy="230" rx="230" ry="46"/>
+    <ellipse cx="520" cy="200" rx="150" ry="40"/>
+    <ellipse cx="1180" cy="150" rx="260" ry="40"/>
+    <ellipse cx="1650" cy="420" rx="180" ry="30"/>
+    <ellipse cx="820" cy="380" rx="200" ry="28"/>
+  </g>
+  <path d="M0 760 C 380 600, 760 640, 1100 720 S 1700 700, 1920 620 L1920 1080 L0 1080 Z" fill="url(#colinaFundo)"/>
+  <path d="M0 900 C 420 700, 980 690, 1400 820 S 1800 900, 1920 860 L1920 1080 L0 1080 Z" fill="url(#colinaFrente)"/>
+  <path d="M0 900 C 420 700, 980 690, 1400 820 S 1800 900, 1920 860" fill="none" stroke="#c6f08a" stroke-width="6" opacity="0.35"/>
+</svg>
