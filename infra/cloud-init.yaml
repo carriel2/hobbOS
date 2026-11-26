@@ -1,0 +1,14 @@
+#cloud-config
+# Prepara o Arch para gerar a ISO: sistema atualizado + archiso + git.
+# qemu-base e edk2-ovmf permitem um teste rápido de boot (sem KVM aninhado, fica lento).
+hostname: hobbos-build
+growpart:
+  mode: auto
+  devices: ["/"]
+runcmd:
+  - pacman-key --init
+  - pacman-key --populate archlinux
+  - pacman -Sy --noconfirm archlinux-keyring
+  - pacman -Su --noconfirm
+  - pacman -S --noconfirm --needed archiso git vim qemu-base edk2-ovmf
+  - touch /var/lib/hobbos-build-ready
