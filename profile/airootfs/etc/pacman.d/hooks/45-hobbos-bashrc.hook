@@ -1,0 +1,12 @@
+[Trigger]
+Operation = Install
+Type = Package
+Target = bash
+
+[Action]
+Description = Ligando o fastfetch do HobbOS nos terminais...
+# /etc/bash.bashrc é do pacote bash, então não dá para trocar pelo airootfs:
+# acrescenta uma linha que carrega /usr/share/hobbos/bashrc
+When = PostTransaction
+Depends = bash
+Exec = /bin/sh -c 'grep -q /usr/share/hobbos/bashrc /etc/bash.bashrc || echo "[ -r /usr/share/hobbos/bashrc ] && . /usr/share/hobbos/bashrc" >> /etc/bash.bashrc'

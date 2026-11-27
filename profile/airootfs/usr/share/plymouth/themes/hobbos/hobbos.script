@@ -1,0 +1,60 @@
+# Tela de boot do hobbOS: logo no centro e três blocos andando dentro de uma barra.
+# Imagens geradas por branding/render.sh a partir dos SVGs de branding/.
+
+Window.SetBackgroundTopColor(0.043, 0.184, 0.451);    # #0b2f73
+Window.SetBackgroundBottomColor(0.039, 0.141, 0.341); # #0a2457
+
+cx = Window.GetX() + Window.GetWidth() / 2;
+cy = Window.GetY() + Window.GetHeight() / 2;
+
+logo.image = Image("logo.png");
+logo.sprite = Sprite(logo.image);
+logo.y = cy - logo.image.GetHeight() - 10;
+logo.sprite.SetPosition(cx - logo.image.GetWidth() / 2, logo.y, 1);
+
+if (Plymouth.GetMode() == "boot")
+  texto = "iniciando o sistema...";
+else
+  texto = "desligando...";
+msg.image = Image.Text(texto, 0.74, 0.83, 1, 1, "DejaVu Sans 12");
+msg.sprite = Sprite(msg.image);
+msg.sprite.SetPosition(cx - msg.image.GetWidth() / 2, cy + 6, 1);
+
+barra.image = Image("barra.png");
+barra.sprite = Sprite(barra.image);
+barra.x = cx - barra.image.GetWidth() / 2;
+barra.y = cy + 40;
+barra.sprite.SetPosition(barra.x, barra.y, 1);
+
+bloco = Image("bloco.png");
+passo = bloco.GetWidth() + 3;
+dentro = barra.image.GetWidth() - 8;
+for (i = 0; i < 3; i++) {
+  blocos[i] = Sprite(bloco);
+  blocos[i].SetOpacity(0);
+}
+
+global.quadro = 0;
+fun atualiza() {
+  global.quadro++;
+  # Os três blocos entram pela esquerda, cruzam a barra e somem na direita
+  pos = Math.Int(global.quadro * 1.6) % (dentro + 3 * passo + 20);
+  for (i = 0; i < 3; i++) {
+    x = pos - i * passo - bloco.GetWidth();
+    if (x < 0 || x > dentro - bloco.GetWidth()) {
+      blocos[i].SetOpacity(0);
+    } else {
+      blocos[i].SetPosition(barra.x + 4 + x, barra.y + 4, 2);
+      blocos[i].SetOpacity(1);
+    }
+  }
+}
+Plymouth.SetRefreshFunction(atualiza);
+
+# Mensagens do sistema (ex.: "pressione uma tecla") aparecem embaixo
+fun mostra_mensagem(texto) {
+  global.aviso.image = Image.Text(texto, 1, 1, 1, 1, "DejaVu Sans 10");
+  global.aviso.sprite = Sprite(global.aviso.image);
+  global.aviso.sprite.SetPosition(cx - global.aviso.image.GetWidth() / 2, Window.GetY() + Window.GetHeight() - 40, 3);
+}
+Plymouth.SetMessageFunction(mostra_mensagem);

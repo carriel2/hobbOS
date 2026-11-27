@@ -9,3 +9,4 @@ out/
 work/
 *.iso
 infra/tfplan
+__pycache__/

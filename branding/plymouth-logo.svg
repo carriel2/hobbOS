@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="120" viewBox="0 0 420 120">
+  <!-- Logo da tela de boot (Plymouth): o disco do Iniciar e o nome, sobre fundo transparente -->
+  <image href="hobbos-start.svg" x="0" y="12" width="96" height="96"/>
+  <text x="112" y="78" font-family="DejaVu Sans" font-size="66" font-weight="bold" font-style="italic" fill="#ffffff">hobb<tspan fill="#ffb04a">OS</tspan></text>
+</svg>

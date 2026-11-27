@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Boas-vindas ao hobbOS
+Comment=Atalhos para começar a usar o sistema
+Exec=hobbos-boas-vindas
+Icon=/usr/share/pixmaps/hobbos-start.svg
+Terminal=false
+Categories=System;
