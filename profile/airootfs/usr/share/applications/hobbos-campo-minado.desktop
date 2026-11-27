@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Campo Minado
+Comment=Ache as minas sem explodir nenhuma
+Exec=hobbos-campo-minado
+Icon=applications-games
+Terminal=false
+Categories=Game;LogicGame;

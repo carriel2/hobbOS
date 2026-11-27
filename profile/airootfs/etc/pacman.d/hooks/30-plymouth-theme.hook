@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Install
+Type = Package
+Target = plymouth
+
+[Action]
+Description = Definindo a tela de boot do HobbOS (Plymouth)...
+# Roda antes do 90-mkinitcpio-install, então o tema entra no initramfs
+When = PostTransaction
+Depends = plymouth
+Exec = /usr/bin/plymouth-set-default-theme hobbos

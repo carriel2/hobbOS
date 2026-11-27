@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Janela de boas-vindas do hobbOS: aparece ao entrar no desktop, com atalhos
+para o que o sistema faz. Desmarcar "Mostrar ao iniciar" vale só para esta sessão
+live (o pendrive não guarda nada)."""
+import os
+import subprocess
+import sys
+
+import cairo
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import Gdk, GdkPixbuf, Gtk  # noqa: E402
+
+CONF = os.path.expanduser("~/.config/hobbos")
+NAO_MOSTRAR = os.path.join(CONF, "sem-boas-vindas")
+LOGO = "/usr/share/pixmaps/hobbos-start.svg"
+REPO = "https://github.com/carriel2/hobbOS"
+
+ATALHOS = [
+    ("firefox", "Navegar na internet", "Firefox em português", ["firefox"]),
+    ("gparted", "Cuidar dos discos", "Particionar, formatar e verificar (GParted)", ["gparted"]),
+    ("drive-harddisk", "Recuperar arquivos apagados", "PhotoRec, para fotos e documentos", ["gtk-launch", "hobbos-photorec"]),
+    ("utilities-terminal", "Abrir o terminal", "Para quem gosta de linha de comando", ["xfce4-terminal"]),
+    ("applications-games", "Jogar Campo Minado", "Uma pausa, como nos velhos tempos", ["hobbos-campo-minado"]),
+    ("help-about", "Sobre o hobbOS", "Código, créditos e novidades no GitHub", ["firefox", REPO]),
+]
+
+
+class BoasVindas(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="Bem-vindo ao hobbOS")
+        self.set_default_size(600, 420)
+        self.set_resizable(False)
+        self.set_position(Gtk.WindowPosition.CENTER)
+        self.set_icon_from_file(LOGO)
+
+        caixa = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.add(caixa)
+
+        faixa = Gtk.DrawingArea()
+        faixa.set_size_request(170, -1)
+        faixa.connect("draw", self.desenha_faixa)
+        caixa.pack_start(faixa, False, False, 0)
+        self.logo = GdkPixbuf.Pixbuf.new_from_file_at_size(LOGO, 96, 96)
+
+        direita = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        direita.set_border_width(18)
+        caixa.pack_start(direita, True, True, 0)
+
+        titulo = Gtk.Label(xalign=0)
+        titulo.set_markup("<span size='x-large' weight='bold' color='#0b2f73'>Bem-vindo ao hobbOS!</span>")
+        direita.pack_start(titulo, False, False, 0)
+        texto = Gtk.Label(xalign=0, wrap=True, max_width_chars=48)
+        texto.set_text("Este sistema roda direto do pendrive, sem instalar nada. "
+                       "Use para navegar, salvar arquivos de um PC com problema ou cuidar dos discos.")
+        direita.pack_start(texto, False, False, 4)
+
+        for icone, nome, detalhe, cmd in ATALHOS:
+            direita.pack_start(self.atalho(icone, nome, detalhe, cmd), False, False, 0)
+
+        rodape = Gtk.Box(spacing=8)
+        self.mostrar = Gtk.CheckButton(label="Mostrar esta janela ao iniciar")
+        self.mostrar.set_active(not os.path.exists(NAO_MOSTRAR))
+        self.mostrar.connect("toggled", self.alterna)
+        rodape.pack_start(self.mostrar, False, False, 0)
+        fechar = Gtk.Button(label="Fechar")
+        fechar.connect("clicked", lambda *_: self.destroy())
+        rodape.pack_end(fechar, False, False, 0)
+        direita.pack_end(rodape, False, False, 0)
+
+        self.connect("destroy", Gtk.main_quit)
+
+    def atalho(self, icone, nome, detalhe, cmd):
+        botao = Gtk.Button(relief=Gtk.ReliefStyle.NONE)
+        linha = Gtk.Box(spacing=10)
+        linha.pack_start(Gtk.Image.new_from_icon_name(icone, Gtk.IconSize.DND), False, False, 0)
+        rotulo = Gtk.Label(xalign=0)
+        rotulo.set_markup(f"<b>{nome}</b>\n<small>{detalhe}</small>")
+        linha.pack_start(rotulo, True, True, 0)
+        botao.add(linha)
+        botao.connect("clicked", lambda *_: subprocess.Popen(cmd, start_new_session=True))
+        return botao
+
+    def desenha_faixa(self, area, cr):
+        w, h = area.get_allocated_width(), area.get_allocated_height()
+        grad = cairo.LinearGradient(0, 0, 0, h)
+        grad.add_color_stop_rgb(0, 0.043, 0.184, 0.451)
+        grad.add_color_stop_rgb(0.6, 0.071, 0.247, 0.580)
+        grad.add_color_stop_rgb(1, 0.039, 0.141, 0.341)
+        cr.set_source(grad)
+        cr.paint()
+        cr.set_source_rgb(1.0, 0.69, 0.29)
+        cr.rectangle(w - 3, 0, 3, h)
+        cr.fill()
+        Gdk.cairo_set_source_pixbuf(cr, self.logo, (w - 96) / 2, 40)
+        cr.paint()
+        cr.select_font_face("DejaVu Sans", cairo.FONT_SLANT_OBLIQUE, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(30)
+        ext_hobb = cr.text_extents("hobb")
+        ext_os = cr.text_extents("OS")
+        x = (w - ext_hobb.x_advance - ext_os.x_advance) / 2
+        cr.move_to(x, 180)
+        cr.set_source_rgb(1, 1, 1)
+        cr.show_text("hobb")
+        cr.set_source_rgb(1.0, 0.69, 0.29)
+        cr.show_text("OS")
+        cr.set_font_size(11)
+        cr.select_font_face("DejaVu Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+        cr.set_source_rgb(0.74, 0.83, 1.0)
+        for i, linha in enumerate(("Live CD /", "pendrive de resgate")):
+            e = cr.text_extents(linha)
+            cr.move_to((w - e.x_advance) / 2, 205 + i * 16)
+            cr.show_text(linha)
+
+    def alterna(self, botao):
+        if botao.get_active():
+            if os.path.exists(NAO_MOSTRAR):
+                os.remove(NAO_MOSTRAR)
+        else:
+            os.makedirs(CONF, exist_ok=True)
+            open(NAO_MOSTRAR, "w").close()
+
+
+if __name__ == "__main__":
+    if "--autostart" in sys.argv and os.path.exists(NAO_MOSTRAR):
+        sys.exit(0)
+    BoasVindas().show_all()
+    Gtk.main()

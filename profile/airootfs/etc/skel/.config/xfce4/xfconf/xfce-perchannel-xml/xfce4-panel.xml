@@ -37,6 +37,9 @@
         <value type="string" value="hobbos-testdisk.desktop"/>
         <value type="string" value="hobbos-photorec.desktop"/>
         <value type="string" value="hobbos-clonezilla.desktop"/>
+        <value type="string" value="hobbos-campo-minado.desktop"/>
+        <value type="string" value="sol.desktop"/>
+        <value type="string" value="hobbos-boas-vindas.desktop"/>
       </property>
     </property>
     <property name="plugin-2" type="string" value="tasklist">

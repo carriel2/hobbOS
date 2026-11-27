@@ -73,6 +73,7 @@ echo "== $ISO ($MODE)"
 t=0
 until $QGA "$SOCK" ping; do
   sleep 5; t=$((t + 5))
+  (( t <= 60 )) && screenshot "boot-$(printf %03d $t)" # tela de boot (Plymouth)
   (( t >= 240 )) && { screenshot boot-travado; echo "FALHA: guest agent não respondeu em 240s"; exit 1; }
 done
 echo "ok: sistema no ar, guest agent respondendo (${t}s)"
@@ -133,6 +134,19 @@ guest "runuser -u hobbos -- env XDG_RUNTIME_DIR=/run/user/1000 DISPLAY=:0 XAUTHO
 sleep 20
 screenshot gparted
 check "GParted aberto como root" "pgrep -u root -x gpartedbin"    "^[0-9]+"
+
+# Extras retrô: boot animado, som, boas-vindas, jogos e fastfetch
+check "boot com splash"             "cat /proc/cmdline"                        "quiet splash"
+check "tema de boot hobbos (Plymouth)" "plymouth-set-default-theme"           "^hobbos"
+check "som de inicialização"        "test -s /usr/share/sounds/hobbos/inicio.wav && cat /home/hobbos/.config/autostart/hobbos-som-inicio.desktop" "pw-play"
+check "janela de boas-vindas aberta" "pgrep -u hobbos -f hobbos-boas-vindas" "^[0-9]+"
+check "fastfetch ligado no bash"    "grep hobbos /etc/bash.bashrc"             "/usr/share/hobbos/bashrc"
+user_check "fastfetch com a logo do hobbOS" "fastfetch --config /usr/share/hobbos/fastfetch.jsonc --pipe" "hobbOS live"
+check "Paciência instalada"         "command -v sol"                           "sol$"
+guest "runuser -u hobbos -- env XDG_RUNTIME_DIR=/run/user/1000 DISPLAY=:0 XAUTHORITY=/home/hobbos/.Xauthority setsid -f hobbos-campo-minado >/dev/null 2>&1" 15 >/dev/null
+sleep 12
+screenshot campo-minado
+check "Campo Minado aberto"         "pgrep -u hobbos -f hobbos-campo-minado"  "^[0-9]+"
 
 echo "== resultado: $fails falha(s). Capturas em $OUT"
 exit $(( fails > 0 ))

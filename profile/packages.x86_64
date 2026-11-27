@@ -165,3 +165,9 @@ ntfs-3g
 # ── HobbOS: fontes ──
 ttf-dejavu
 noto-fonts
+# ── HobbOS: extras retrô (boot animado, boas-vindas, jogos, fastfetch) ──
+plymouth
+fastfetch
+python-gobject
+aisleriot
+python-cairo

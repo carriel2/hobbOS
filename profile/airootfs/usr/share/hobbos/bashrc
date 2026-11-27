@@ -1,0 +1,5 @@
+# hobbOS: carregado pelo /etc/bash.bashrc (linha adicionada pelo hook 45-hobbos-bashrc).
+# Mostra o fastfetch com a logo do hobbOS ao abrir um terminal.
+if [[ $- == *i* && -z ${HOBBOS_SEM_FASTFETCH-} ]] && command -v fastfetch >/dev/null; then
+  fastfetch --config /usr/share/hobbos/fastfetch.jsonc
+fi

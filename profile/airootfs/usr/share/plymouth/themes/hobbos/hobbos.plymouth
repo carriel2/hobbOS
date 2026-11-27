@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=hobbOS
+Description=Tela de boot do hobbOS: logo e barra de blocos
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/hobbos
+ScriptFile=/usr/share/plymouth/themes/hobbos/hobbos.script

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Boas-vindas ao hobbOS
+Exec=sh -c "sleep 3; exec hobbos-boas-vindas --autostart"
+OnlyShowIn=XFCE;
+NoDisplay=true
+X-XFCE-Autostart-Override=true

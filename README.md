@@ -14,15 +14,18 @@ Ele roda direto do pendrive, sem instalar nada: um sistema live para usar e para
 
 * **Base Arch, montada com `archiso`**: o perfil fica em [`profile/`](profile/), a partir do `releng` oficial (versão em [`profile/.archiso-base`](profile/.archiso-base)).
 * **XFCE leve**, com login automático no usuário live `hobbos` (sem senha, com `sudo`).
-* **Visual retrô**: tema de janelas *HobbOS Luna*, ícones nuoveXT2, barra de tarefas azul com o botão **Iniciar**, wallpaper e tela de boot próprios.
+* **Visual retrô**: tema de janelas *HobbOS Luna*, ícones nuoveXT2, barra de tarefas azul com o botão **Iniciar**, wallpaper e menu de boot próprios.
+* **Cara de anos 2000**: boot animado (Plymouth) com a logo e uma barra de blocos, som de inicialização próprio, janela de **boas-vindas** com atalhos, **Campo Minado** feito do zero para o hobbOS, Paciência (Aisleriot) e terminal que abre com a logo em ASCII (fastfetch).
 * **Em português**: idioma pt_BR, teclado ABNT2 e fuso de Brasília. Firefox em português.
 * **Rede e som prontos**: NetworkManager (ícone na bandeja) e PipeWire.
 * **Kit de resgate** no menu Iniciar: GParted, GSmartControl, TestDisk (recuperar partições), PhotoRec (recuperar arquivos), Clonezilla (clonar e salvar disco), ddrescue, `chntpw` (redefinir senha do Windows), `ntfsfix`, memtest86+ no menu de boot e as ferramentas de terminal do Arch.
 * **BIOS e UEFI**.
 
-| Firefox com o tema | GParted |
+| Boot | Menu Iniciar |
 |---|---|
-| ![Firefox](docs/screenshots/firefox.png) | ![GParted](docs/screenshots/gparted.png) |
+| ![Tela de boot do hobbOS](docs/screenshots/boot.png) | ![Menu Iniciar](docs/screenshots/menu-iniciar.png) |
+
+![Terminal com fastfetch, GParted, Campo Minado e Paciência](docs/screenshots/classicos.png)
 
 ## 💻 Requisitos para rodar
 
@@ -60,7 +63,7 @@ tofu destroy                                    # quando terminar, libera a quot
 
 ## ✅ Teste automático
 
-[`tests/smoke-test.sh`](tests/smoke-test.sh) dá boot na ISO no QEMU e, pelo QEMU Guest Agent, confere por dentro do sistema live: desktop no ar, idioma, teclado, fuso, rede e internet, saída de áudio, tema, botão Iniciar, wallpaper, Firefox, ferramentas de resgate e GParted abrindo como root. Sai com erro se algo falhar e guarda capturas de tela.
+[`tests/smoke-test.sh`](tests/smoke-test.sh) dá boot na ISO no QEMU e, pelo QEMU Guest Agent, confere por dentro do sistema live: desktop no ar, idioma, teclado, fuso, rede e internet, saída de áudio, tema, botão Iniciar, wallpaper, Firefox, ferramentas de resgate, GParted abrindo como root, tela de boot, boas-vindas, jogos e fastfetch. Sai com erro se algo falhar e guarda capturas de tela.
 
 ```bash
 sudo pacman -S --needed qemu-base edk2-ovmf python
@@ -75,15 +78,16 @@ Com KVM (`/dev/kvm`), cada modo leva uns 3 minutos.
 | Pasta | O que tem |
 |---|---|
 | [`profile/`](profile/) | Perfil archiso: pacotes, configurações do sistema live, boot |
-| [`branding/`](branding/) | Arte original em SVG (wallpaper, ícone, splash) e `render.sh` para gerar os PNGs |
-| [`tests/`](tests/) | Smoke test no QEMU |
+| [`branding/`](branding/) | Arte original em SVG (wallpaper, ícone, menu e animação de boot), o gerador do som de inicialização e `render.sh` para gerar tudo |
+| [`tests/`](tests/) | Smoke test no QEMU e `vitrine.sh`, que grava o boot e tira as capturas de divulgação |
 | [`infra/`](infra/) | VM de build no OpenStack com OpenTofu |
-| [`docs/screenshots/`](docs/screenshots/) | Capturas geradas pelo smoke test |
+| [`docs/screenshots/`](docs/screenshots/) | Capturas do sistema rodando no QEMU |
 
 ## 🎨 Créditos
 
 * Tema **HobbOS Luna**: derivado do *Windows XP Luna* do [B00merang Project](https://github.com/B00merang-Project/Windows-XP), GPL-3.0 (detalhes em [`NOTICE.md`](profile/airootfs/usr/share/themes/HobbOS-Luna/NOTICE.md)).
 * Ícones **nuoveXT2**, do pacote `lxde-icon-theme` do Arch.
-* Wallpaper, ícone do Iniciar e tela de boot: arte original deste projeto.
+* Wallpaper, ícone do Iniciar, telas de boot e som de inicialização (sintetizado em Python, em [`branding/startup-sound.py`](branding/startup-sound.py)): arte original deste projeto.
+* Campo Minado e janela de boas-vindas: escritos para o hobbOS, em Python com GTK 3.
 
 O hobbOS não tem relação com a Microsoft. "Windows" e "Windows XP" são marcas da Microsoft; o projeto só se inspira no visual da época e não usa logos nem artes dela.

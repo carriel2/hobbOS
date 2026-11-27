@@ -40,3 +40,15 @@
   background-color: #0f8de8;
   background-image: linear-gradient(to bottom, #19a6f5, #0d8be0 50%, #0b78c9);
 }
+
+/* Rótulos dos ícones do desktop sempre transparentes, mesmo com outra janela em foco */
+XfdesktopIconView.view, XfdesktopIconView .view,
+XfdesktopIconView.view:backdrop, XfdesktopIconView .view:backdrop,
+XfdesktopIconView:backdrop {
+  background-color: transparent;
+  color: #FFFFFF;
+  text-shadow: 1px 1px rgba(0, 0, 0, 0.8); }
+XfdesktopIconView.view:selected, XfdesktopIconView .view:selected,
+XfdesktopIconView.view:selected:backdrop, XfdesktopIconView .view:selected:backdrop {
+  background-color: rgba(20, 102, 201, 0.75);
+  color: #FFFFFF; }
