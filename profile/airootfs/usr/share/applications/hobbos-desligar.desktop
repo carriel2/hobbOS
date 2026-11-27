@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Desligar o computador
+Comment=Suspender, reiniciar ou desligar
+Exec=hobbos-desligar
+Icon=system-shutdown
+Categories=System;

@@ -1,0 +1,347 @@
+#!/usr/bin/env python3
+"""Relatório do PC: junta numa tela só o que importa para diagnosticar uma máquina
+(modelo, processador, memória, vídeo, saúde dos discos pelo SMART, temperaturas,
+bateria e rede) e salva tudo num HTML para mandar para alguém ou guardar.
+
+Uso: hobbos-relatorio               janela
+     hobbos-relatorio --html ARQ    só gera o HTML (usado nos testes)
+     hobbos-relatorio --texto       imprime no terminal
+"""
+import datetime
+import glob
+import html
+import json
+import os
+import platform
+import re
+import subprocess
+import sys
+
+OK, AVISO, RUIM = "ok", "aviso", "ruim"
+
+
+def le(caminho, padrao=""):
+    try:
+        with open(caminho) as f:
+            return f.read().strip()
+    except OSError:
+        return padrao
+
+
+def roda(cmd, tempo=20):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=tempo).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def humano(n):
+    for u in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024 or u == "TB":
+            return f"{n:.0f} {u}" if u == "B" else f"{n:.1f} {u}".replace(".", ",")
+        n /= 1024
+
+
+def computador():
+    dmi = "/sys/class/dmi/id/"
+    fab, modelo = le(dmi + "sys_vendor"), le(dmi + "product_name")
+    itens = [("Fabricante", fab or "não informado", None), ("Modelo", modelo or "não informado", None)]
+    placa = " ".join(filter(None, (le(dmi + "board_vendor"), le(dmi + "board_name"))))
+    if placa:
+        itens.append(("Placa-mãe", placa, None))
+    bios = " ".join(filter(None, (le(dmi + "bios_vendor"), le(dmi + "bios_version"), le(dmi + "bios_date"))))
+    if bios:
+        itens.append(("BIOS", bios, None))
+    itens.append(("Modo de boot", "UEFI" if os.path.isdir("/sys/firmware/efi") else "BIOS (legado)", None))
+    virt = roda(["systemd-detect-virt"]).strip()
+    if virt and virt != "none":
+        itens.append(("Máquina virtual", virt, None))
+    return ("Computador", "computer", itens)
+
+
+def processador():
+    info = le("/proc/cpuinfo")
+    modelo = re.search(r"model name\s*:\s*(.+)", info)
+    nucleos = re.search(r"cpu cores\s*:\s*(\d+)", info)
+    itens = [("Modelo", modelo.group(1).strip() if modelo else platform.processor() or "?", None),
+             ("Núcleos / threads", f"{nucleos.group(1) if nucleos else '?'} / {os.cpu_count()}", None)]
+    mx = le("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq")
+    if mx:
+        itens.append(("Frequência máxima", f"{int(mx) / 1e6:.2f} GHz".replace(".", ","), None))
+    flags = re.search(r"flags\s*:\s*(.+)", info)
+    if flags:
+        f = flags.group(1).split()
+        itens.append(("64 bits", "sim" if "lm" in f else "não", None))
+        itens.append(("Virtualização (VT-x/AMD-V)", "sim" if ("vmx" in f or "svm" in f) else "não disponível", None))
+    return ("Processador", "cpu", itens)
+
+
+def memoria():
+    m = dict(re.findall(r"(\w+):\s+(\d+) kB", le("/proc/meminfo")))
+    total, livre = int(m.get("MemTotal", 0)) * 1024, int(m.get("MemAvailable", 0)) * 1024
+    estado = AVISO if total < 2 * 1024 ** 3 else None
+    itens = [("Total", humano(total), estado), ("Disponível agora", humano(livre), None)]
+    if estado:
+        itens.append(("Observação", "menos de 2 GB: programas atuais vão ficar lentos", AVISO))
+    return ("Memória RAM", "memory", itens)
+
+
+def video():
+    itens = []
+    for linha in roda(["lspci", "-mm"]).splitlines():
+        partes = re.findall(r'"([^"]*)"', linha)
+        if len(partes) >= 3 and re.search(r"VGA|3D|Display", partes[0]):
+            itens.append(("Placa de vídeo", f"{partes[1]} {partes[2]}", None))
+    for st in sorted(glob.glob("/sys/class/drm/card*-*/status")):
+        if le(st) == "connected":
+            conector = st.split("/")[-2].split("-", 1)[1]
+            modos = le(os.path.join(os.path.dirname(st), "modes")).splitlines()
+            itens.append((f"Tela ({conector})", modos[0] if modos else "conectada", None))
+    return ("Vídeo", "video-display", itens or [("Placa de vídeo", "não identificada", None)])
+
+
+def smart(dev):
+    """Lê o SMART pelo smartctl (via pkexec: no live não pede senha)."""
+    saida = roda(["pkexec", "--disable-internal-agent", "smartctl", "-j", "-i", "-H", "-A", dev], 40)
+    try:
+        return json.loads(saida)
+    except ValueError:
+        return {}
+
+
+def discos():
+    itens = []
+    boot = roda(["findmnt", "-no", "SOURCE", "/run/archiso/bootmnt"]).strip()
+    dados = json.loads(roda(["lsblk", "-J", "-b", "-d", "-o", "NAME,PATH,MODEL,SIZE,ROTA,TRAN,TYPE"]) or "{}")
+    for d in dados.get("blockdevices", []):
+        if d.get("type") != "disk" or re.match(r"(loop|zram|sr|ram)", d["name"]):
+            continue
+        tipo = "SSD NVMe" if d["name"].startswith("nvme") else ("HD" if d.get("rota") else "SSD")
+        if d.get("tran") == "usb":
+            tipo += " (USB)"
+        nome = f"{d['path']} - {(d.get('model') or 'disco').strip()}"
+        if boot.startswith(d["path"]):
+            itens.append((nome, f"{tipo}, {humano(d['size'])} - é o pendrive do hobbOS", None))
+            continue
+        s = smart(d["path"])
+        partes, estado = [f"{tipo}, {humano(d['size'])}"], None
+        if not s.get("smart_status"):
+            partes.append("sem SMART (disco virtual ou adaptador USB que não repassa)")
+        else:
+            passou = s["smart_status"].get("passed")
+            attrs = {a["id"]: a["raw"]["value"] for a in s.get("ata_smart_attributes", {}).get("table", [])}
+            nv = s.get("nvme_smart_health_information_log", {})
+            realoc, pend = attrs.get(5, 0), attrs.get(197, 0)
+            horas = s.get("power_on_time", {}).get("hours")
+            temp = s.get("temperature", {}).get("current")
+            desgaste = nv.get("percentage_used")
+            if horas is not None:
+                partes.append(f"{horas} h ligado (~{horas / 24 / 365:.1f} anos)".replace(".", ","))
+            if temp is not None:
+                partes.append(f"{temp} °C")
+            if desgaste is not None:
+                partes.append(f"desgaste {desgaste}%")
+            if realoc or pend:
+                partes.append(f"setores realocados {realoc}, pendentes {pend}")
+            if passou is False:
+                estado = RUIM
+                partes.insert(0, "FALHANDO: copie seus arquivos já!")
+            elif realoc or pend or (desgaste or 0) >= 80 or nv.get("media_errors"):
+                estado = AVISO
+                partes.insert(0, "Atenção: o disco mostra sinais de desgaste")
+            else:
+                estado = OK
+                partes.insert(0, "Saudável")
+        itens.append((nome, " - ".join(partes), estado))
+    return ("Discos", "drive-harddisk", itens or [("Discos", "nenhum disco interno encontrado", AVISO)])
+
+
+def temperaturas():
+    itens = []
+    for h in sorted(glob.glob("/sys/class/hwmon/hwmon*")):
+        nome = le(h + "/name")
+        for t in sorted(glob.glob(h + "/temp*_input")):
+            v = le(t)
+            if not v:
+                continue
+            c = int(v) / 1000
+            rot = le(t.replace("_input", "_label")) or nome
+            estado = RUIM if c >= 90 else AVISO if c >= 75 else OK
+            itens.append((rot, f"{c:.0f} °C", estado))
+    return ("Temperaturas", "temperature", itens[:12] or [("Sensores", "nenhum sensor disponível", None)])
+
+
+def bateria():
+    itens = []
+    for b in sorted(glob.glob("/sys/class/power_supply/BAT*")):
+        cheia = le(b + "/energy_full") or le(b + "/charge_full")
+        projeto = le(b + "/energy_full_design") or le(b + "/charge_full_design")
+        itens.append((os.path.basename(b), f"{le(b + '/capacity', '?')}% - {le(b + '/status', '?')}", None))
+        if cheia and projeto and int(projeto):
+            saude = int(cheia) * 100 / int(projeto)
+            itens.append(("Saúde da bateria", f"{saude:.0f}% da capacidade original",
+                          OK if saude >= 70 else AVISO if saude >= 40 else RUIM))
+    return ("Bateria", "battery", itens) if itens else None
+
+
+def rede():
+    itens = []
+    try:
+        ifs = json.loads(roda(["ip", "-j", "addr"]) or "[]")
+    except ValueError:
+        ifs = []
+    for i in ifs:
+        if i["ifname"] == "lo":
+            continue
+        tipo = "Wi-Fi" if os.path.isdir(f"/sys/class/net/{i['ifname']}/wireless") else "Cabo"
+        ips = [a["local"] for a in i.get("addr_info", []) if a.get("family") == "inet"]
+        estado = i.get("operstate", "")
+        itens.append((f"{i['ifname']} ({tipo})",
+                      f"{'conectada' if estado == 'UP' else 'desconectada'}"
+                      f"{' - ' + ', '.join(ips) if ips else ''} - MAC {i.get('address', '?')}",
+                      OK if ips else None))
+    return ("Rede", "network-wired", itens or [("Rede", "nenhuma placa encontrada", AVISO)])
+
+
+def sistema():
+    up = float(le("/proc/uptime", "0").split()[0])
+    return ("Este relatório", "dialog-information", [
+        ("Gerado em", datetime.datetime.now().strftime("%d/%m/%Y %H:%M"), None),
+        ("Gerado por", "hobbOS live (Relatório do PC)", None),
+        ("Kernel", platform.release(), None),
+        ("Ligado há", f"{int(up // 3600)} h {int(up % 3600 // 60)} min", None),
+    ])
+
+
+def coleta():
+    secoes = [computador(), processador(), memoria(), discos(), video(), temperaturas(), bateria(), rede(), sistema()]
+    return [s for s in secoes if s]
+
+
+CORES = {OK: ("#1e7e34", "#e4f6e8"), AVISO: ("#8a6100", "#fff4d6"), RUIM: ("#b00020", "#fde3e6")}
+
+
+def para_html(secoes):
+    css = """body{font-family:'DejaVu Sans',Tahoma,sans-serif;background:#ece9d8;margin:0}
+header{background:linear-gradient(#2a5fc9,#0b2f73);color:#fff;padding:18px 28px;border-bottom:3px solid #ffb04a}
+header h1{margin:0;font-style:italic}header span{color:#ffb04a}
+main{max-width:900px;margin:20px auto;padding:0 16px}
+section{background:#fff;border:1px solid #7f9db9;border-radius:6px;margin:14px 0;overflow:hidden}
+section h2{margin:0;font-size:15px;color:#fff;background:linear-gradient(#3b78e7,#1d4fbf);padding:7px 12px}
+table{width:100%;border-collapse:collapse}td{padding:6px 12px;border-top:1px solid #e3e3e3;vertical-align:top}
+td:first-child{width:34%;font-weight:bold;color:#333}footer{text-align:center;color:#666;font-size:12px;margin:24px}"""
+    partes = [f"<!DOCTYPE html><html lang='pt-BR'><head><meta charset='utf-8'><title>Relatório do PC</title>"
+              f"<style>{css}</style></head><body><header><h1>hobb<span>OS</span> - Relatório do PC</h1></header><main>"]
+    for titulo, _, itens in secoes:
+        partes.append(f"<section><h2>{html.escape(titulo)}</h2><table>")
+        for k, v, e in itens:
+            estilo = f" style='color:{CORES[e][0]};background:{CORES[e][1]};font-weight:bold'" if e in (AVISO, RUIM) else \
+                (f" style='color:{CORES[OK][0]}'" if e == OK else "")
+            partes.append(f"<tr><td>{html.escape(k)}</td><td{estilo}>{html.escape(str(v))}</td></tr>")
+        partes.append("</table></section>")
+    partes.append("<footer>Gerado pelo hobbOS - github.com/carriel2/hobbOS</footer></main></body></html>")
+    return "".join(partes)
+
+
+def janela(secoes):
+    import gi
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("Gdk", "3.0")
+    from gi.repository import Gdk, GLib, Gtk
+
+    css = Gtk.CssProvider()
+    css.load_from_data(b"""
+        .cartao { background: #ffffff; border: 1px solid #7f9db9; border-radius: 6px; }
+        .cartao-titulo { background-image: linear-gradient(to bottom, #3b78e7, #1d4fbf); color: #ffffff;
+                         font-weight: bold; padding: 5px 10px; border-radius: 5px 5px 0 0; }
+        .fundo { background: #ece9d8; }
+    """)
+    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    jan = Gtk.Window(title="Relatório do PC")
+    jan.set_default_size(820, 640)
+    jan.set_icon_name("computer")
+    jan.connect("destroy", Gtk.main_quit)
+    caixa = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    jan.add(caixa)
+
+    topo = Gtk.Box(spacing=8)
+    topo.set_border_width(8)
+    resumo = Gtk.Label(xalign=0)
+    ruins = sum(1 for _, _, it in secoes for _, _, e in it if e == RUIM)
+    avisos = sum(1 for _, _, it in secoes for _, _, e in it if e == AVISO)
+    if ruins:
+        resumo.set_markup(f"<span color='#b00020' weight='bold' size='large'>{ruins} problema(s) sério(s) encontrado(s)</span>")
+    elif avisos:
+        resumo.set_markup(f"<span color='#8a6100' weight='bold' size='large'>{avisos} ponto(s) de atenção</span>")
+    else:
+        resumo.set_markup("<span color='#1e7e34' weight='bold' size='large'>Tudo certo por aqui</span>")
+    topo.pack_start(resumo, True, True, 0)
+    salvar = Gtk.Button(label="Salvar relatório (HTML)")
+    topo.pack_end(salvar, False, False, 0)
+    caixa.pack_start(topo, False, False, 0)
+
+    rol = Gtk.ScrolledWindow()
+    lista = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    lista.set_border_width(12)
+    fundo = Gtk.EventBox()
+    fundo.get_style_context().add_class("fundo")
+    fundo.add(lista)
+    rol.add(fundo)
+    caixa.pack_start(rol, True, True, 0)
+
+    for titulo, icone, itens in secoes:
+        cartao = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        cartao.get_style_context().add_class("cartao")
+        cab = Gtk.Box(spacing=6)
+        cab.get_style_context().add_class("cartao-titulo")
+        cab.pack_start(Gtk.Image.new_from_icon_name(icone, Gtk.IconSize.MENU), False, False, 0)
+        lt = Gtk.Label(label=titulo, xalign=0)
+        cab.pack_start(lt, True, True, 0)
+        cartao.pack_start(cab, False, False, 0)
+        grade = Gtk.Grid(column_spacing=16, row_spacing=4)
+        grade.set_border_width(10)
+        for i, (k, v, e) in enumerate(itens):
+            lk = Gtk.Label(xalign=0, yalign=0)
+            lk.set_markup(f"<b>{GLib.markup_escape_text(k)}</b>")
+            lv = Gtk.Label(xalign=0, wrap=True, max_width_chars=60, selectable=True)
+            texto = GLib.markup_escape_text(str(v))
+            if e in CORES:
+                peso = "bold" if e != OK else "normal"
+                lv.set_markup(f"<span color='{CORES[e][0]}' background='{CORES[e][1]}' weight='{peso}'> {texto} </span>")
+            else:
+                lv.set_markup(texto)
+            grade.attach(lk, 0, i, 1, 1)
+            grade.attach(lv, 1, i, 1, 1)
+        cartao.pack_start(grade, False, False, 0)
+        lista.pack_start(cartao, False, False, 0)
+
+    def salva(*_):
+        dlg = Gtk.FileChooserDialog(title="Salvar relatório", parent=jan, action=Gtk.FileChooserAction.SAVE)
+        dlg.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Salvar", Gtk.ResponseType.OK)
+        dlg.set_do_overwrite_confirmation(True)
+        dlg.set_current_folder(os.path.expanduser("~"))
+        dlg.set_current_name(f"relatorio-do-pc-{datetime.date.today()}.html")
+        if dlg.run() == Gtk.ResponseType.OK:
+            caminho = dlg.get_filename()
+            with open(caminho, "w") as f:
+                f.write(para_html(secoes))
+            subprocess.Popen(["firefox", caminho], start_new_session=True)
+        dlg.destroy()
+    salvar.connect("clicked", salva)
+    jan.show_all()
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    dados = coleta()
+    if "--html" in sys.argv:
+        with open(sys.argv[sys.argv.index("--html") + 1], "w") as f:
+            f.write(para_html(dados))
+    elif "--texto" in sys.argv:
+        for t, _, itens in dados:
+            print(f"== {t}")
+            for k, v, e in itens:
+                print(f"  {k}: {v}{'  [' + e.upper() + ']' if e in (AVISO, RUIM) else ''}")
+    else:
+        janela(dados)

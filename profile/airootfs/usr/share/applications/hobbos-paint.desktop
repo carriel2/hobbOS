@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Paint
+GenericName=Pintura
+Comment=Desenhar e pintar como antigamente
+Exec=hobbos-paint %f
+Icon=applications-graphics
+Terminal=false
+MimeType=image/png;
+Categories=Graphics;2DGraphics;RasterGraphics;

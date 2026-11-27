@@ -1,0 +1,645 @@
+#!/usr/bin/env python3
+"""Salvar meus arquivos: assistente do hobbOS que copia as pastas pessoais de um
+Windows (Área de trabalho, Documentos, Imagens...) para um HD externo ou pendrive.
+
+O Windows é montado SÓ PARA LEITURA (via udisks): nada é apagado nem alterado nele.
+Funciona com Windows 7 a 11 (C:\\Users) e com o velho XP (C:\\Documents and Settings).
+
+Uso: hobbos-salvar-arquivos            assistente gráfico
+     hobbos-salvar-arquivos --auto     sem perguntas: primeira conta, todas as pastas,
+                                       primeiro destino externo (usado nos testes)
+     hobbos-salvar-arquivos --listar   só mostra o que encontrou
+"""
+import datetime
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+
+IGNORAR_CONTAS = {"all users", "default", "default user", "public", "defaultuser0", "defaultuser100000",
+                  "wdagutilityaccount", "localservice", "networkservice", "administrador.old"}
+# nome mostrado, nomes possíveis da pasta (Windows novo e XP, em inglês e português)
+PASTAS = [
+    ("Área de trabalho", ["Desktop", "Área de trabalho"]),
+    ("Documentos", ["Documents", "Meus documentos", "My Documents"]),
+    ("Imagens", ["Pictures", "Meus documentos/Minhas imagens", "My Documents/My Pictures"]),
+    ("Músicas", ["Music", "Meus documentos/Minhas músicas", "My Documents/My Music"]),
+    ("Vídeos", ["Videos", "Meus documentos/Meus vídeos", "My Documents/My Videos"]),
+    ("Downloads", ["Downloads"]),
+    ("Favoritos", ["Favorites", "Favoritos"]),
+    ("OneDrive", ["OneDrive"]),
+]
+FS_DESTINO = {"vfat", "exfat", "ntfs", "ext4", "ext3", "ext2", "btrfs", "xfs", "f2fs"}
+
+
+# ---------------------------------------------------------------- discos
+def lsblk():
+    out = subprocess.run(["lsblk", "-J", "-b", "-o",
+                          "NAME,PATH,FSTYPE,LABEL,SIZE,MOUNTPOINTS,RM,HOTPLUG,TRAN,TYPE,PKNAME,MODEL"],
+                         capture_output=True, text=True, check=True).stdout
+    devs = []
+
+    def anda(lista, pai=None):
+        for d in lista:
+            d["_pai"] = pai
+            devs.append(d)
+            anda(d.get("children", []), d)
+    anda(json.loads(out)["blockdevices"])
+    return devs
+
+
+def disco_do_boot(devs):
+    """Disco de onde o hobbOS foi iniciado (não serve nem de origem nem de destino)."""
+    src = subprocess.run(["findmnt", "-no", "SOURCE", "/run/archiso/bootmnt"],
+                         capture_output=True, text=True).stdout.strip()
+    for d in devs:
+        if d["path"] == src:
+            return d["pkname"] or d["name"]
+    return None
+
+
+def raiz(d):
+    while d.get("_pai"):
+        d = d["_pai"]
+    return d
+
+
+def ponto_de_montagem(d):
+    pts = [p for p in (d.get("mountpoints") or []) if p]
+    return pts[0] if pts else None
+
+
+def monta(path, somente_leitura):
+    """Monta pelo udisks (sem senha no live). Devolve o ponto de montagem ou levanta erro."""
+    cmd = ["udisksctl", "mount", "--no-user-interaction", "-b", path]
+    if somente_leitura:
+        cmd += ["-o", "ro"]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    m = re.search(r" at (/\S.*?)\.?$", r.stdout.strip())
+    if r.returncode == 0 and m:
+        return m.group(1)
+    # já montado?
+    for d in lsblk():
+        if d["path"] == path and ponto_de_montagem(d):
+            return ponto_de_montagem(d)
+    raise RuntimeError((r.stderr or r.stdout).strip() or "não foi possível montar")
+
+
+def humano(n):
+    for u in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024 or u == "TB":
+            return f"{n:.0f} {u}" if u == "B" else f"{n:.1f} {u}".replace(".", ",")
+        n /= 1024
+
+
+def acha_pasta(base, nome):
+    """Acha base/nome ignorando maiúsculas/minúsculas (o NTFS não diferencia)."""
+    atual = base
+    for parte in nome.split("/"):
+        try:
+            achou = next((e for e in os.listdir(atual) if e.lower() == parte.lower()), None)
+        except OSError:
+            return None
+        if achou is None:
+            return None
+        atual = os.path.join(atual, achou)
+    return atual if os.path.isdir(atual) and not os.path.islink(atual) else None
+
+
+def procura_windows(avisa=lambda msg: None):
+    """Lista as contas de usuário encontradas em partições NTFS (montadas só leitura)."""
+    devs = lsblk()
+    boot = disco_do_boot(devs)
+    contas = []
+    for d in devs:
+        if d.get("fstype") != "ntfs" or raiz(d)["name"] == boot:
+            continue
+        avisa(f"Abrindo {d['path']} (só leitura)...")
+        try:
+            mp = ponto_de_montagem(d) or monta(d["path"], True)
+        except RuntimeError as e:
+            avisa(f"{d['path']}: {e}")
+            continue
+        for pasta_contas in ("Users", "Documents and Settings"):
+            base = acha_pasta(mp, pasta_contas)
+            if not base:
+                continue
+            for nome in sorted(os.listdir(base)):
+                perfil = os.path.join(base, nome)
+                if nome.lower() in IGNORAR_CONTAS or not os.path.isdir(perfil) or os.path.islink(perfil):
+                    continue
+                pastas = [(mostra, p) for mostra, nomes in PASTAS
+                          for p in [next(filter(None, (acha_pasta(perfil, n) for n in nomes)), None)] if p]
+                if pastas:
+                    contas.append({
+                        "usuario": nome, "particao": d["path"], "rotulo": d.get("label") or "",
+                        "tamanho": d["size"], "xp": pasta_contas != "Users", "pastas": pastas,
+                    })
+    return contas
+
+
+def procura_destinos(origem_particao=None):
+    """Pendrives e HDs externos com sistema de arquivos gravável (monta para ver o espaço livre)."""
+    devs = lsblk()
+    boot = disco_do_boot(devs)
+    destinos = []
+    for d in devs:
+        r = raiz(d)
+        externo = r.get("tran") == "usb" or r.get("hotplug") or r.get("rm")
+        if (d.get("fstype") not in FS_DESTINO or r["name"] == boot or d["path"] == origem_particao
+                or not externo or d.get("type") not in ("part", "disk")):
+            continue
+        try:
+            mp = ponto_de_montagem(d) or monta(d["path"], False)
+        except RuntimeError:
+            continue
+        if not os.access(mp, os.W_OK):
+            continue
+        livre = shutil.disk_usage(mp).free
+        nome = d.get("label") or r.get("model") or d["name"]
+        destinos.append({"nome": nome.strip(), "caminho": mp, "livre": livre, "particao": d["path"]})
+    return destinos
+
+
+# ---------------------------------------------------------------- cópia
+def tamanho_pasta(p, parar=lambda: False):
+    total = arquivos = 0
+    for raiz_, dirs, files in os.walk(p, onerror=lambda e: None):
+        if parar():
+            break
+        dirs[:] = [x for x in dirs if not os.path.islink(os.path.join(raiz_, x))]
+        for f in files:
+            try:
+                total += os.lstat(os.path.join(raiz_, f)).st_size
+                arquivos += 1
+            except OSError:
+                pass
+    return total, arquivos
+
+
+class Copiador:
+    """Copia as pastas escolhidas, contando bytes e guardando os erros (sem parar no primeiro)."""
+
+    def __init__(self, conta, pastas, destino_raiz):
+        quando = datetime.datetime.now().strftime("%Y-%m-%d %Hh%M")
+        self.destino = os.path.join(destino_raiz, f"Backup hobbOS - {conta['usuario']} - {quando}")
+        self.pastas = pastas  # [(nome mostrado, caminho)]
+        self.total = sum(tamanho_pasta(p)[0] for _, p in pastas)
+        self.copiado = self.arquivos = 0
+        self.erros, self.atual, self.cancelado, self.fim = [], "", False, False
+
+    def roda(self):
+        try:
+            os.makedirs(self.destino, exist_ok=True)
+            for mostra, origem in self.pastas:
+                for raiz_, dirs, files in os.walk(origem, onerror=lambda e: self.erros.append(str(e))):
+                    if self.cancelado:
+                        return
+                    dirs[:] = [x for x in dirs if not os.path.islink(os.path.join(raiz_, x))]
+                    rel = os.path.relpath(raiz_, origem)
+                    alvo = os.path.normpath(os.path.join(self.destino, mostra, rel))
+                    os.makedirs(alvo, exist_ok=True)
+                    for f in files:
+                        if self.cancelado:
+                            return
+                        src = os.path.join(raiz_, f)
+                        if os.path.islink(src):
+                            continue
+                        self.atual = os.path.join(mostra, rel, f) if rel != "." else os.path.join(mostra, f)
+                        try:
+                            shutil.copyfile(src, os.path.join(alvo, f))
+                            try:
+                                shutil.copystat(src, os.path.join(alvo, f))
+                            except OSError:
+                                pass  # FAT/exFAT não guardam permissões: tudo bem
+                            self.copiado += os.path.getsize(src)
+                            self.arquivos += 1
+                        except OSError as e:
+                            self.erros.append(f"{self.atual}: {e.strerror or e}")
+            self.escreve_relatorio()
+        finally:
+            self.fim = True
+
+    def escreve_relatorio(self):
+        with open(os.path.join(self.destino, "LEIA-ME - copia feita pelo hobbOS.txt"), "w") as f:
+            f.write("Cópia feita pelo assistente 'Salvar meus arquivos' do hobbOS\n")
+            f.write(f"Data: {datetime.datetime.now():%d/%m/%Y %H:%M}\n")
+            f.write(f"Arquivos copiados: {self.arquivos} ({humano(self.copiado)})\n")
+            f.write("Pastas: " + ", ".join(m for m, _ in self.pastas) + "\n\n")
+            if self.erros:
+                f.write(f"Arquivos que não puderam ser copiados ({len(self.erros)}):\n")
+                f.writelines(e + "\n" for e in self.erros)
+            else:
+                f.write("Tudo copiado sem erros.\n")
+
+
+# ---------------------------------------------------------------- modo texto
+def modo_texto(auto):
+    contas = procura_windows(lambda m: print(m, flush=True))
+    if not contas:
+        print("Nenhum Windows com pastas de usuário encontrado.")
+        return 1
+    for c in contas:
+        print(f"Conta: {c['usuario']} em {c['particao']}{' (XP)' if c['xp'] else ''}: "
+              + ", ".join(m for m, _ in c["pastas"]))
+    if not auto:
+        return 0
+    conta = contas[0]
+    destinos = procura_destinos(conta["particao"])
+    if not destinos:
+        print("Nenhum pendrive ou HD externo gravável encontrado.")
+        return 1
+    dest = destinos[0]
+    print(f"Destino: {dest['nome']} ({dest['caminho']}, {humano(dest['livre'])} livres)")
+    cp = Copiador(conta, conta["pastas"], dest["caminho"])
+    cp.roda()
+    print(f"Copiados {cp.arquivos} arquivos ({humano(cp.copiado)}) para {cp.destino}; erros: {len(cp.erros)}")
+    return 0 if not cp.erros else 2
+
+
+# ---------------------------------------------------------------- assistente
+def assistente():
+    import gi
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("Gdk", "3.0")
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
+
+    css = Gtk.CssProvider()
+    css.load_from_data(b"""
+        .cabecalho { background: #ffffff; border-bottom: 1px solid #a0a0a0; }
+        .corpo { background: #ece9d8; }
+        .titulo { font-weight: bold; font-size: 13pt; }
+        .lateral { background-image: linear-gradient(to bottom, #2a5fc9, #0b2f73); }
+    """)
+    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    class Janela(Gtk.Window):
+        def __init__(self):
+            super().__init__(title="Salvar meus arquivos")
+            self.set_default_size(640, 470)
+            self.set_resizable(False)
+            self.set_position(Gtk.WindowPosition.CENTER)
+            self.set_icon_name("document-save")
+            self.connect("delete-event", self.ao_fechar)
+            self.contas, self.conta, self.destinos, self.cp = [], None, [], None
+            self.tamanhos = {}
+
+            caixa = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            self.add(caixa)
+            cab = Gtk.Box(spacing=10)
+            cab.get_style_context().add_class("cabecalho")
+            cab.set_border_width(0)
+            textos = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            textos.set_margin_start(16)
+            textos.set_margin_top(10)
+            textos.set_margin_bottom(10)
+            self.titulo = Gtk.Label(xalign=0)
+            self.titulo.get_style_context().add_class("titulo")
+            self.sub = Gtk.Label(xalign=0, wrap=True, max_width_chars=60)
+            textos.pack_start(self.titulo, False, False, 0)
+            textos.pack_start(self.sub, False, False, 0)
+            cab.pack_start(textos, True, True, 0)
+            img = Gtk.Image.new_from_icon_name("document-save", Gtk.IconSize.DIALOG)
+            img.set_margin_end(14)
+            cab.pack_end(img, False, False, 0)
+            caixa.pack_start(cab, False, False, 0)
+
+            self.pilha = Gtk.Stack()
+            self.pilha.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+            corpo = Gtk.Box()
+            corpo.get_style_context().add_class("corpo")
+            self.pilha.set_margin_start(20)
+            self.pilha.set_margin_end(20)
+            self.pilha.set_margin_top(14)
+            corpo.pack_start(self.pilha, True, True, 0)
+            caixa.pack_start(corpo, True, True, 0)
+
+            rodape = Gtk.Box(spacing=6)
+            rodape.set_border_width(10)
+            self.b_voltar = Gtk.Button(label="< Voltar")
+            self.b_avancar = Gtk.Button(label="Avançar >")
+            self.b_cancelar = Gtk.Button(label="Cancelar")
+            self.b_voltar.connect("clicked", lambda *_: self.voltar())
+            self.b_avancar.connect("clicked", lambda *_: self.avancar())
+            self.b_cancelar.connect("clicked", lambda *_: self.ao_fechar())
+            rodape.pack_end(self.b_cancelar, False, False, 0)
+            rodape.pack_end(self.b_avancar, False, False, 0)
+            rodape.pack_end(self.b_voltar, False, False, 0)
+            caixa.pack_start(Gtk.Separator(), False, False, 0)
+            caixa.pack_start(rodape, False, False, 0)
+
+            self.monta_paginas()
+            self.vai("inicio")
+
+        # ----- páginas -----
+        def monta_paginas(self):
+            p = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            t = Gtk.Label(xalign=0, wrap=True, max_width_chars=70)
+            t.set_markup(
+                "Este assistente copia os seus arquivos de um <b>Windows que não liga mais</b> "
+                "(ou que você vai formatar) para um <b>HD externo ou pendrive</b>.\n\n"
+                "• O disco do Windows é aberto <b>só para leitura</b>: nada é apagado nem alterado nele.\n"
+                "• São copiadas as pastas pessoais: Área de trabalho, Documentos, Imagens, Músicas, "
+                "Vídeos, Downloads, Favoritos e OneDrive.\n"
+                "• Funciona com Windows 7, 8, 10 e 11, e também com o velho XP.\n\n"
+                "Antes de continuar, <b>conecte o HD externo ou pendrive</b> que vai receber a cópia.")
+            p.pack_start(t, False, False, 0)
+            self.pilha.add_named(p, "inicio")
+
+            p = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            self.busca_lbl = Gtk.Label(xalign=0)
+            self.busca_spin = Gtk.Spinner()
+            linha = Gtk.Box(spacing=8)
+            linha.pack_start(self.busca_spin, False, False, 0)
+            linha.pack_start(self.busca_lbl, False, False, 0)
+            p.pack_start(linha, False, False, 0)
+            self.lista_contas = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            p.pack_start(self.lista_contas, False, False, 0)
+            b = Gtk.Button(label="Procurar de novo")
+            b.set_halign(Gtk.Align.START)
+            b.connect("clicked", lambda *_: self.busca_contas())
+            p.pack_end(b, False, False, 6)
+            self.pilha.add_named(p, "contas")
+
+            p = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            self.lista_pastas = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            p.pack_start(self.lista_pastas, False, False, 0)
+            self.total_lbl = Gtk.Label(xalign=0)
+            p.pack_start(self.total_lbl, False, False, 8)
+            self.pilha.add_named(p, "pastas")
+
+            p = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            self.lista_dest = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            p.pack_start(self.lista_dest, False, False, 0)
+            self.aviso_dest = Gtk.Label(xalign=0, wrap=True, max_width_chars=70)
+            p.pack_start(self.aviso_dest, False, False, 0)
+            linha = Gtk.Box(spacing=6)
+            b1 = Gtk.Button(label="Procurar de novo")
+            b1.connect("clicked", lambda *_: self.busca_destinos())
+            b2 = Gtk.Button(label="Escolher outra pasta...")
+            b2.connect("clicked", lambda *_: self.escolhe_pasta())
+            linha.pack_start(b1, False, False, 0)
+            linha.pack_start(b2, False, False, 0)
+            p.pack_end(linha, False, False, 6)
+            self.pilha.add_named(p, "destino")
+
+            p = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            self.barra = Gtk.ProgressBar(show_text=True)
+            self.prog_lbl = Gtk.Label(xalign=0, ellipsize=3)
+            self.prog_det = Gtk.Label(xalign=0)
+            p.pack_start(self.barra, False, False, 10)
+            p.pack_start(self.prog_det, False, False, 0)
+            p.pack_start(self.prog_lbl, False, False, 0)
+            self.pilha.add_named(p, "copiando")
+
+            p = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            self.fim_lbl = Gtk.Label(xalign=0, wrap=True, max_width_chars=70)
+            p.pack_start(self.fim_lbl, False, False, 0)
+            self.b_abrir = Gtk.Button(label="Abrir a pasta da cópia")
+            self.b_abrir.set_halign(Gtk.Align.START)
+            self.b_abrir.connect("clicked", lambda *_: subprocess.Popen(["thunar", self.cp.destino]))
+            p.pack_start(self.b_abrir, False, False, 0)
+            self.pilha.add_named(p, "fim")
+
+        TEXTOS = {
+            "inicio": ("Bem-vindo ao assistente Salvar meus arquivos", "Copie seus arquivos antes que seja tarde."),
+            "contas": ("Onde estão os seus arquivos?", "Escolha a conta do Windows que você quer salvar."),
+            "pastas": ("O que copiar?", "Marque as pastas que vão para o HD externo."),
+            "destino": ("Para onde copiar?", "Escolha o pendrive ou HD externo que vai receber a cópia."),
+            "copiando": ("Copiando seus arquivos...", "Não desconecte nenhum disco até terminar."),
+            "fim": ("Pronto!", "A cópia terminou."),
+        }
+
+        def vai(self, nome):
+            self.pagina = nome
+            self.pilha.set_visible_child_name(nome)
+            t, s = self.TEXTOS[nome]
+            self.titulo.set_text(t)
+            self.sub.set_text(s)
+            self.b_voltar.set_sensitive(nome in ("contas", "pastas", "destino"))
+            self.b_avancar.set_label("Copiar" if nome == "destino" else ("Concluir" if nome == "fim" else "Avançar >"))
+            self.b_avancar.set_sensitive(nome not in ("copiando",))
+            self.b_cancelar.set_sensitive(nome != "fim")
+            if nome == "contas":
+                self.busca_contas()
+            elif nome == "pastas":
+                self.mostra_pastas()
+            elif nome == "destino":
+                self.busca_destinos()
+
+        def avancar(self):
+            ordem = ["inicio", "contas", "pastas", "destino"]
+            if self.pagina == "contas" and not self.conta:
+                return
+            if self.pagina == "destino":
+                return self.comeca_copia()
+            if self.pagina == "fim":
+                return self.destroy() or Gtk.main_quit()
+            self.vai(ordem[ordem.index(self.pagina) + 1])
+
+        def voltar(self):
+            ordem = ["inicio", "contas", "pastas", "destino"]
+            self.vai(ordem[ordem.index(self.pagina) - 1])
+
+        # ----- contas -----
+        def busca_contas(self):
+            for c in self.lista_contas.get_children():
+                c.destroy()
+            self.busca_spin.start()
+            self.busca_lbl.set_text("Procurando o Windows nos discos...")
+            self.b_avancar.set_sensitive(False)
+
+            def trabalho():
+                contas = procura_windows(lambda m: GLib.idle_add(self.busca_lbl.set_text, m))
+                GLib.idle_add(self.mostra_contas, contas)
+            threading.Thread(target=trabalho, daemon=True).start()
+
+        def mostra_contas(self, contas):
+            self.busca_spin.stop()
+            self.contas = contas
+            if not contas:
+                self.busca_lbl.set_markup("<b>Não encontrei nenhum Windows com pastas de usuário.</b>\n"
+                                          "Confira se o HD do computador está conectado e clique em Procurar de novo.")
+                return
+            self.busca_lbl.set_text(f"Encontrei {len(contas)} conta(s):")
+            grupo = None
+            for c in contas:
+                b = Gtk.RadioButton.new_from_widget(grupo)
+                grupo = grupo or b
+                b.add(self.rotulo(f"<b>{GLib.markup_escape_text(c['usuario'])}</b>"
+                                  f"{' (Windows XP)' if c['xp'] else ''}\n<small>Disco {c['particao']}"
+                                  f"{' - ' + GLib.markup_escape_text(c['rotulo']) if c['rotulo'] else ''}"
+                                  f", {humano(c['tamanho'])} - pastas: {', '.join(m for m, _ in c['pastas'])}</small>"))
+                b.connect("toggled", lambda w, c=c: w.get_active() and self.escolhe_conta(c))
+                self.lista_contas.pack_start(b, False, False, 0)
+            self.lista_contas.show_all()
+            self.escolhe_conta(contas[0])
+            self.b_avancar.set_sensitive(True)
+
+        def escolhe_conta(self, c):
+            self.conta = c
+
+        def rotulo(self, markup):
+            lbl = Gtk.Label(xalign=0)
+            lbl.set_markup(markup)
+            return lbl
+
+        # ----- pastas -----
+        def mostra_pastas(self):
+            for c in self.lista_pastas.get_children():
+                c.destroy()
+            self.checks = []
+            for mostra, caminho in self.conta["pastas"]:
+                ch = Gtk.CheckButton()
+                ch.set_active(True)
+                lbl = self.rotulo(f"<b>{mostra}</b>  <small>calculando...</small>")
+                ch.add(lbl)
+                ch.connect("toggled", lambda *_: self.atualiza_total())
+                self.lista_pastas.pack_start(ch, False, False, 0)
+                self.checks.append((ch, lbl, mostra, caminho))
+            self.lista_pastas.show_all()
+            self.atualiza_total()
+
+            def trabalho(itens=list(self.checks)):
+                for ch, lbl, mostra, caminho in itens:
+                    if caminho not in self.tamanhos:
+                        self.tamanhos[caminho] = tamanho_pasta(caminho)
+                    t, n = self.tamanhos[caminho]
+                    GLib.idle_add(lbl.set_markup, f"<b>{mostra}</b>  <small>{humano(t)} em {n} arquivos</small>")
+                    GLib.idle_add(self.atualiza_total)
+            threading.Thread(target=trabalho, daemon=True).start()
+
+        def escolhidas(self):
+            return [(m, c) for ch, _, m, c in self.checks if ch.get_active()]
+
+        def atualiza_total(self):
+            esc = self.escolhidas()
+            if all(c in self.tamanhos for _, c in esc):
+                total = sum(self.tamanhos[c][0] for _, c in esc)
+                self.total_lbl.set_markup(f"Total a copiar: <b>{humano(total)}</b>")
+            else:
+                self.total_lbl.set_text("Calculando o tamanho...")
+            self.b_avancar.set_sensitive(bool(esc))
+            return False
+
+        # ----- destino -----
+        def busca_destinos(self):
+            for c in self.lista_dest.get_children():
+                c.destroy()
+            self.dest = None
+            self.aviso_dest.set_text("Procurando pendrives e HDs externos...")
+            self.b_avancar.set_sensitive(False)
+
+            def trabalho():
+                ds = procura_destinos(self.conta["particao"])
+                GLib.idle_add(self.mostra_destinos, ds)
+            threading.Thread(target=trabalho, daemon=True).start()
+
+        def mostra_destinos(self, ds, extra=None):
+            for c in self.lista_dest.get_children():
+                c.destroy()
+            self.destinos = ds + ([extra] if extra else [])
+            if not self.destinos:
+                self.aviso_dest.set_markup("<b>Nenhum pendrive ou HD externo encontrado.</b>\n"
+                                           "Conecte um e clique em Procurar de novo, ou escolha outra pasta.")
+                return
+            grupo = None
+            for d in self.destinos:
+                b = Gtk.RadioButton.new_from_widget(grupo)
+                grupo = grupo or b
+                b.add(self.rotulo(f"<b>{GLib.markup_escape_text(d['nome'])}</b>\n<small>{GLib.markup_escape_text(d['caminho'])}"
+                                  f" - {humano(d['livre'])} livres</small>"))
+                b.connect("toggled", lambda w, d=d: w.get_active() and self.escolhe_destino(d))
+                self.lista_dest.pack_start(b, False, False, 0)
+                if d is extra:
+                    b.set_active(True)
+            self.lista_dest.show_all()
+            self.escolhe_destino(extra or self.destinos[0])
+
+        def escolhe_destino(self, d):
+            self.dest = d
+            total = sum(self.tamanhos.get(c, (0, 0))[0] for _, c in self.escolhidas())
+            if total > d["livre"]:
+                self.aviso_dest.set_markup(f"<span color='#b00000'><b>Não cabe:</b> a cópia tem {humano(total)} "
+                                           f"e o destino só tem {humano(d['livre'])} livres. Desmarque algumas pastas "
+                                           "ou use um disco maior.</span>")
+                self.b_avancar.set_sensitive(False)
+            else:
+                self.aviso_dest.set_markup(f"Vai ser criada a pasta <b>Backup hobbOS - {GLib.markup_escape_text(self.conta['usuario'])}"
+                                           f" - (data)</b> em {GLib.markup_escape_text(d['nome'])}.")
+                self.b_avancar.set_sensitive(True)
+
+        def escolhe_pasta(self):
+            dlg = Gtk.FileChooserDialog(title="Escolha a pasta de destino", parent=self,
+                                        action=Gtk.FileChooserAction.SELECT_FOLDER)
+            dlg.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Escolher", Gtk.ResponseType.OK)
+            if dlg.run() == Gtk.ResponseType.OK:
+                c = dlg.get_filename()
+                extra = {"nome": os.path.basename(c) or c, "caminho": c, "livre": shutil.disk_usage(c).free,
+                         "particao": None}
+                self.mostra_destinos([d for d in self.destinos if d.get("particao")], extra)
+            dlg.destroy()
+
+        # ----- cópia -----
+        def comeca_copia(self):
+            self.vai("copiando")
+            self.barra.set_fraction(0)
+            self.prog_lbl.set_text("Preparando...")
+            pastas, destino = self.escolhidas(), self.dest["caminho"]
+
+            def trabalho():
+                self.cp = Copiador(self.conta, pastas, destino)
+                self.cp.roda()
+            threading.Thread(target=trabalho, daemon=True).start()
+            GLib.timeout_add(200, self.progresso)
+
+        def progresso(self):
+            cp = self.cp
+            if cp is None:
+                return True
+            frac = cp.copiado / cp.total if cp.total else 1.0
+            self.barra.set_fraction(min(1.0, frac))
+            self.barra.set_text(f"{frac * 100:.0f}%")
+            self.prog_det.set_markup(f"<b>{humano(cp.copiado)}</b> de {humano(cp.total)} - {cp.arquivos} arquivos")
+            self.prog_lbl.set_text(cp.atual)
+            if not cp.fim:
+                return True
+            if cp.cancelado:
+                self.fim_lbl.set_markup(f"A cópia foi <b>cancelada</b>. O que já foi copiado ({cp.arquivos} arquivos) "
+                                        f"ficou em:\n{GLib.markup_escape_text(cp.destino)}")
+            else:
+                erros = (f"\n\n<span color='#b00000'>{len(cp.erros)} arquivo(s) não puderam ser lidos</span> "
+                         "(a lista está no arquivo LEIA-ME dentro da pasta).") if cp.erros else ""
+                self.fim_lbl.set_markup(f"Foram copiados <b>{cp.arquivos} arquivos ({humano(cp.copiado)})</b> para:\n"
+                                        f"{GLib.markup_escape_text(cp.destino)}{erros}\n\n"
+                                        "Antes de desconectar o disco, clique nele com o botão direito em "
+                                        "Arquivos e escolha <b>Ejetar</b>.")
+            self.vai("fim")
+            subprocess.Popen(["pw-play", "/usr/share/sounds/hobbos/stereo/dialog-information.wav"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return False
+
+        def ao_fechar(self, *_):
+            if self.pagina == "copiando" and self.cp and not self.cp.fim:
+                d = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION,
+                                      buttons=Gtk.ButtonsType.YES_NO, text="Cancelar a cópia no meio?")
+                r = d.run()
+                d.destroy()
+                if r == Gtk.ResponseType.YES:
+                    self.cp.cancelado = True
+                return True
+            Gtk.main_quit()
+            return False
+
+    Janela().show_all()
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    if "--auto" in sys.argv or "--listar" in sys.argv:
+        sys.exit(modo_texto("--auto" in sys.argv))
+    assistente()

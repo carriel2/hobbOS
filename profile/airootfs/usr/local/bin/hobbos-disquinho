@@ -1,0 +1,325 @@
+#!/usr/bin/env python3
+"""Disquinho, o mascote do hobbOS: um disquete com carinha que aparece no canto
+da tela com dicas de vez em quando e avisa quando um pendrive é conectado.
+
+Personagem original do hobbOS, desenhado em cairo. Clique no balão para fechar
+(ou para abrir o pendrive); botão direito para outra dica ou para desligar as dicas.
+"""
+import math
+import os
+import random
+import subprocess
+import sys
+
+import cairo
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("PangoCairo", "1.0")
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango, PangoCairo  # noqa: E402
+
+CONF = os.path.expanduser("~/.config/hobbos")
+SEM_DICAS = os.path.join(CONF, "sem-dicas")
+SONS = "/usr/share/sounds/hobbos/stereo"
+W, H = 380, 178
+BALAO = (4, 4, 262, 122)  # x, y, largura, altura
+PAINEL = 34
+PRIMEIRA, INTERVALO, VISIVEL = 75, 20 * 60, 22  # segundos
+
+DICAS = [
+    "Precisa tirar os arquivos de um PC que não liga mais? Abra <b>Salvar meus arquivos</b> no menu Iniciar.",
+    "Apagou fotos sem querer? O <b>PhotoRec</b>, no Iniciar, recupera muita coisa de HDs, pendrives e cartões.",
+    "O <b>Relatório do PC</b> mostra processador, memória, temperatura e a saúde dos discos numa tela só.",
+    "O <b>GSmartControl</b> lê o SMART do disco: é o HD avisando que está cansado antes de quebrar.",
+    "Esqueceu a senha do Windows? O <b>chntpw</b>, no terminal, consegue apagar a senha de uma conta local.",
+    "O <b>Clonezilla</b> copia um disco inteiro para outro. Ótimo antes de trocar o HD por um SSD.",
+    "Cansou de consertar computador? Tem <b>Campo Minado</b>, <b>Paciência</b> e o <b>Paint</b> no Iniciar.",
+    "Desconfia da memória RAM? Reinicie e escolha <b>Memtest86+</b> no menu de boot.",
+    "<b>Ctrl+Alt+T</b> abre o terminal. Ele começa mostrando a logo do hobbOS!",
+    "Deixe o computador parado uns minutos para ver o <b>protetor de tela</b> com os canos 3D.",
+    "Por padrão nada fica gravado: o hobbOS roda na memória e tudo some ao desligar. Salve o que importa num pendrive.",
+    "Um disquete como eu guardava <b>1,44 MB</b>. Um pendrive de 8 GB guarda o mesmo que uns 5.400 de nós!",
+    "O hobbOS é feito por hobby e o código está aberto em <b>github.com/carriel2/hobbOS</b>.",
+    "O <b>GParted</b> cria, apaga e redimensiona partições. Confira duas vezes antes de clicar em Aplicar!",
+]
+
+
+class Disquinho(Gtk.Window):
+    def __init__(self):
+        super().__init__(type=Gtk.WindowType.TOPLEVEL)
+        self.set_title("Disquinho")
+        self.set_decorated(False)
+        self.set_keep_above(True)
+        self.set_skip_taskbar_hint(True)
+        self.set_skip_pager_hint(True)
+        self.set_accept_focus(False)
+        self.set_type_hint(Gdk.WindowTypeHint.NOTIFICATION)
+        self.set_app_paintable(True)
+        tela = self.get_screen()
+        self.transparente = tela.get_rgba_visual() is not None and tela.is_composited()
+        if self.transparente:
+            self.set_visual(tela.get_rgba_visual())
+        self.set_default_size(W, H)
+        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.connect("draw", self.desenha)
+        self.connect("button-press-event", self.clique)
+        self.texto, self.acao, self.t, self.piscando = "", None, 0.0, 0
+        self.esconde_id = None
+        self.dicas = DICAS[:]
+        random.shuffle(self.dicas)
+        GLib.timeout_add(40, self.anima)
+
+        self.monitor = Gio.VolumeMonitor.get()
+        self.monitor.connect("volume-added", self.pendrive_entrou)
+        self.monitor.connect("volume-removed", self.pendrive_saiu)
+
+        GLib.timeout_add_seconds(PRIMEIRA, self.proxima_dica)
+        GLib.timeout_add_seconds(PRIMEIRA + INTERVALO, self.dica_periodica)
+
+    # ---------- quando aparecer ----------
+    def mostra(self, texto, acao=None, som=None, segundos=VISIVEL):
+        self.texto, self.acao = texto, acao
+        geo = self.get_screen().get_display().get_primary_monitor() or \
+            self.get_screen().get_display().get_monitor(0)
+        r = geo.get_workarea() if hasattr(geo, "get_workarea") else geo.get_geometry()
+        self.move(r.x + r.width - W - 10, r.y + r.height - H - 6)
+        self.show_all()
+        self.queue_draw()
+        if som:
+            toca(som)
+        if self.esconde_id:
+            GLib.source_remove(self.esconde_id)
+        self.esconde_id = GLib.timeout_add_seconds(segundos, self.some)
+
+    def some(self):
+        self.esconde_id = None
+        self.hide()
+        return False
+
+    def proxima_dica(self, forcar=False):
+        if os.path.exists(SEM_DICAS) and not forcar:
+            return False
+        if not self.dicas:
+            self.dicas = DICAS[:]
+            random.shuffle(self.dicas)
+        self.mostra("<b>Dica do Disquinho</b>\n" + self.dicas.pop(), som="message-new-instant")
+        return False
+
+    def dica_periodica(self):
+        self.proxima_dica()
+        return True
+
+    def pendrive_entrou(self, monitor, volume):
+        nome = GLib.markup_escape_text(volume.get_name() or "pendrive")
+        self.mostra(f"<b>Pendrive conectado!</b>\n{nome}\n<i>Clique aqui para abrir.</i>",
+                    acao=lambda: abre_volume(volume), som="device-added", segundos=15)
+
+    def pendrive_saiu(self, monitor, volume):
+        nome = GLib.markup_escape_text(volume.get_name() or "pendrive")
+        self.mostra(f"<b>Pendrive removido.</b>\n{nome} pode ser guardado.", som="device-removed", segundos=8)
+
+    # ---------- interação ----------
+    def clique(self, w, ev):
+        bx, by, bw, bh = BALAO
+        if ev.button == 3:
+            menu = Gtk.Menu()
+            for rotulo, f in (("Outra dica", self.proxima_dica),
+                              ("Não mostrar mais dicas", self.desliga_dicas),
+                              ("Esconder", self.some)):
+                item = Gtk.MenuItem(label=rotulo)
+                item.connect("activate", lambda _i, f=f: f())
+                menu.append(item)
+            menu.show_all()
+            menu.popup_at_pointer(ev)
+            return True
+        if bx <= ev.x <= bx + bw and by <= ev.y <= by + bh:
+            if self.acao and not (ev.x > bx + bw - 22 and ev.y < by + 22):
+                self.acao()
+            self.some()
+        return True
+
+    def desliga_dicas(self):
+        os.makedirs(CONF, exist_ok=True)
+        open(SEM_DICAS, "w").close()
+        self.mostra("Tudo bem, sem mais dicas por aqui.\nPendrives eu continuo avisando!", segundos=6)
+
+    def anima(self):
+        self.t += 0.04
+        if self.piscando > 0:
+            self.piscando -= 1
+        elif random.random() < 0.012:
+            self.piscando = 4
+        if self.get_visible():
+            self.queue_draw()
+        return True
+
+    # ---------- desenho ----------
+    def desenha(self, w, cr):
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        if self.transparente:
+            cr.set_source_rgba(0, 0, 0, 0)
+        else:
+            cr.set_source_rgb(0.36, 0.58, 0.88)
+        cr.paint()
+        cr.set_operator(cairo.OPERATOR_OVER)
+        self.desenha_balao(cr)
+        self.desenha_disquete(cr, 292, 92 + 3 * math.sin(self.t * 2.2))
+
+    def desenha_balao(self, cr):
+        bx, by, bw, bh = BALAO
+        r = 12
+        cr.new_path()
+        cr.arc(bx + r, by + r, r, math.pi, 1.5 * math.pi)
+        cr.arc(bx + bw - r, by + r, r, 1.5 * math.pi, 2 * math.pi)
+        cr.arc(bx + bw - r, by + bh - r, r, 0, 0.5 * math.pi)
+        # rabicho apontando para o Disquinho
+        cr.line_to(bx + bw - 30, by + bh)
+        cr.line_to(bx + bw + 16, by + bh + 26)
+        cr.line_to(bx + bw - 58, by + bh)
+        cr.arc(bx + r, by + bh - r, r, 0.5 * math.pi, math.pi)
+        cr.close_path()
+        cr.set_source_rgb(1.0, 1.0, 0.88)
+        cr.fill_preserve()
+        cr.set_source_rgb(0.2, 0.2, 0.2)
+        cr.set_line_width(1.5)
+        cr.stroke()
+        # X de fechar
+        cr.set_source_rgb(0.45, 0.45, 0.45)
+        cr.set_line_width(1.6)
+        x0, y0 = bx + bw - 16, by + 9
+        cr.move_to(x0, y0); cr.line_to(x0 + 7, y0 + 7)
+        cr.move_to(x0 + 7, y0); cr.line_to(x0, y0 + 7)
+        cr.stroke()
+        # texto
+        lay = PangoCairo.create_layout(cr)
+        lay.set_font_description(Pango.FontDescription("DejaVu Sans 9"))
+        lay.set_width((bw - 34) * Pango.SCALE)
+        lay.set_wrap(Pango.WrapMode.WORD_CHAR)
+        lay.set_markup(self.texto, -1)
+        cr.set_source_rgb(0.08, 0.08, 0.08)
+        _, log = lay.get_pixel_extents()
+        cr.move_to(bx + 12, by + max(8, (bh - log.height) / 2))
+        PangoCairo.show_layout(cr, lay)
+
+    def desenha_disquete(self, cr, x, y):
+        w, h = 66, 70
+        # sombra no chão
+        cr.save()
+        cr.translate(x + w / 2, 174)
+        cr.scale(1, 0.18)
+        cr.arc(0, 0, 30, 0, 2 * math.pi)
+        cr.restore()
+        cr.set_source_rgba(0, 0, 0, 0.25)
+        cr.fill()
+        # corpo azul com canto chanfrado
+        cr.move_to(x, y)
+        cr.line_to(x + w - 9, y)
+        cr.line_to(x + w, y + 9)
+        cr.line_to(x + w, y + h)
+        cr.line_to(x, y + h)
+        cr.close_path()
+        g = cairo.LinearGradient(x, y, x + w, y + h)
+        g.add_color_stop_rgb(0, 0.28, 0.52, 0.95)
+        g.add_color_stop_rgb(1, 0.10, 0.27, 0.66)
+        cr.set_source(g)
+        cr.fill_preserve()
+        cr.set_source_rgb(0.05, 0.14, 0.38)
+        cr.set_line_width(2)
+        cr.stroke()
+        # trava de metal
+        cr.rectangle(x + 15, y + 1, 32, 20)
+        g = cairo.LinearGradient(x + 15, y, x + 47, y)
+        g.add_color_stop_rgb(0, 0.86, 0.87, 0.90)
+        g.add_color_stop_rgb(0.5, 0.65, 0.67, 0.72)
+        g.add_color_stop_rgb(1, 0.85, 0.86, 0.89)
+        cr.set_source(g)
+        cr.fill()
+        cr.set_source_rgb(0.12, 0.2, 0.4)
+        cr.rectangle(x + 36, y + 4, 6, 13)
+        cr.fill()
+        # etiqueta branca
+        cr.rectangle(x + 8, y + 32, w - 16, h - 36)
+        cr.set_source_rgb(0.98, 0.98, 0.96)
+        cr.fill()
+        cr.set_source_rgb(1.0, 0.55, 0.12)
+        cr.rectangle(x + 8, y + 32, w - 16, 4)
+        cr.fill()
+        # olhos (piscam de vez em quando)
+        for ox in (22, 44):
+            ex, ey = x + ox, y + 47
+            if self.piscando:
+                cr.set_source_rgb(0.1, 0.1, 0.1)
+                cr.set_line_width(2)
+                cr.move_to(ex - 5, ey); cr.line_to(ex + 5, ey)
+                cr.stroke()
+            else:
+                cr.save(); cr.translate(ex, ey); cr.scale(1, 1.3)
+                cr.arc(0, 0, 5, 0, 2 * math.pi); cr.restore()
+                cr.set_source_rgb(1, 1, 1); cr.fill_preserve()
+                cr.set_source_rgb(0.1, 0.1, 0.1); cr.set_line_width(1); cr.stroke()
+                cr.arc(ex + 1.5, ey + 1, 2.6, 0, 2 * math.pi); cr.fill()
+        # sorriso
+        cr.set_source_rgb(0.1, 0.1, 0.1)
+        cr.set_line_width(2)
+        cr.arc(x + w / 2, y + 54, 8, 0.25 * math.pi, 0.75 * math.pi)
+        cr.stroke()
+        # bracinho acenando
+        a = math.sin(self.t * 5) * 0.35
+        cr.set_line_width(3)
+        cr.set_source_rgb(0.05, 0.14, 0.38)
+        bx0, by0 = x - 1, y + 40
+        cr.move_to(bx0, by0)
+        cr.line_to(bx0 - 12, by0 - 14 + a * 10)
+        cr.stroke()
+        cr.arc(bx0 - 13, by0 - 16 + a * 10, 4, 0, 2 * math.pi)
+        cr.set_source_rgb(1, 1, 1)
+        cr.fill_preserve()
+        cr.set_source_rgb(0.05, 0.14, 0.38)
+        cr.set_line_width(1.5)
+        cr.stroke()
+
+
+def toca(nome):
+    try:
+        subprocess.Popen(["pw-play", os.path.join(SONS, nome + ".wav")],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        pass
+
+
+def abre_volume(volume):
+    def montou(vol, res):
+        try:
+            vol.mount_finish(res)
+        except GLib.Error:
+            pass
+        m = vol.get_mount()
+        if m:
+            subprocess.Popen(["thunar", m.get_root().get_path()], start_new_session=True)
+    if volume.get_mount():
+        subprocess.Popen(["thunar", volume.get_mount().get_root().get_path()], start_new_session=True)
+    else:
+        volume.mount(Gio.MountMountFlags.NONE, None, None, montou)
+
+
+class App(Gtk.Application):
+    """Instância única: abrir de novo (pelo menu, com --demo) só pede uma dica nova."""
+
+    def __init__(self):
+        super().__init__(application_id="io.github.carriel2.hobbos.Disquinho",
+                         flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+        self.d = None
+
+    def do_command_line(self, linha):
+        if self.d is None:
+            self.d = Disquinho()
+            self.d.connect("destroy", lambda *_: self.quit())
+            self.hold()
+        if "--demo" in linha.get_arguments():  # mostra uma dica na hora (menu, testes, capturas)
+            GLib.idle_add(lambda: self.d.proxima_dica(forcar=True))
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(App().run(sys.argv))

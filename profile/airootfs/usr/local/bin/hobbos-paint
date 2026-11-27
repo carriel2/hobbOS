@@ -1,0 +1,538 @@
+#!/usr/bin/env python3
+"""Paint do hobbOS: programa de desenho simples, no espírito dos anos 2000,
+feito do zero em GTK 3 + cairo.
+
+Ferramentas: lápis, pincel, borracha, balde de tinta, conta-gotas, spray, linha,
+retângulo e elipse. Botão esquerdo pinta com a cor principal e o direito com a
+secundária. Abre e salva PNG; abre também JPG.
+"""
+import math
+import os
+import random
+import sys
+
+import cairo
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+
+LARG, ALT = 800, 560
+PALETA = [
+    "#000000", "#808080", "#800000", "#808000", "#008000", "#008080", "#000080",
+    "#800080", "#808040", "#004040", "#0080ff", "#004080", "#8000ff", "#804000",
+    "#ffffff", "#c0c0c0", "#ff0000", "#ffff00", "#00ff00", "#00ffff", "#0000ff",
+    "#ff00ff", "#ffff80", "#00ff80", "#80ffff", "#8080ff", "#ff0080", "#ff8040",
+]
+FERRAMENTAS = [
+    ("lapis", "Lápis"), ("pincel", "Pincel"), ("borracha", "Borracha"),
+    ("balde", "Balde de tinta"), ("gotas", "Conta-gotas"), ("spray", "Spray"),
+    ("linha", "Linha"), ("retangulo", "Retângulo"), ("elipse", "Elipse"),
+]
+TAMANHOS = [1, 3, 6, 11]
+
+
+def rgb(hexa):
+    return tuple(int(hexa[i:i + 2], 16) / 255 for i in (1, 3, 5))
+
+
+def icone(cr, nome):
+    """Ícones das ferramentas desenhados à mão em 24x24."""
+    cr.set_line_width(1.6)
+    cr.set_line_cap(cairo.LINE_CAP_ROUND)
+    if nome == "lapis":
+        cr.set_source_rgb(0.95, 0.75, 0.2)
+        cr.move_to(6, 18); cr.line_to(16, 6); cr.line_to(19, 9); cr.line_to(9, 21); cr.close_path(); cr.fill()
+        cr.set_source_rgb(0.2, 0.2, 0.2); cr.move_to(6, 18); cr.line_to(5, 22); cr.line_to(9, 21); cr.fill()
+    elif nome == "pincel":
+        cr.set_source_rgb(0.55, 0.35, 0.15); cr.set_line_width(3); cr.move_to(18, 5); cr.line_to(11, 14); cr.stroke()
+        cr.set_source_rgb(0.1, 0.3, 0.8); cr.arc(9, 17, 4, 0, 2 * math.pi); cr.fill()
+    elif nome == "borracha":
+        cr.set_source_rgb(0.95, 0.55, 0.6)
+        cr.move_to(4, 15); cr.line_to(12, 7); cr.line_to(20, 12); cr.line_to(12, 20); cr.close_path(); cr.fill()
+        cr.set_source_rgb(0.3, 0.3, 0.3); cr.move_to(4, 15); cr.line_to(12, 7); cr.line_to(20, 12); cr.line_to(12, 20)
+        cr.close_path(); cr.stroke()
+    elif nome == "balde":
+        cr.set_source_rgb(0.4, 0.4, 0.45)
+        cr.move_to(5, 10); cr.line_to(15, 6); cr.line_to(19, 15); cr.line_to(9, 19); cr.close_path(); cr.fill()
+        cr.set_source_rgb(0.1, 0.4, 0.9); cr.arc(19, 19, 3, 0, 2 * math.pi); cr.fill()
+    elif nome == "gotas":
+        cr.set_source_rgb(0.3, 0.3, 0.3); cr.set_line_width(2.5); cr.move_to(18, 6); cr.line_to(8, 16); cr.stroke()
+        cr.set_source_rgb(0.1, 0.4, 0.9); cr.arc(6, 19, 2.5, 0, 2 * math.pi); cr.fill()
+    elif nome == "spray":
+        cr.set_source_rgb(0.5, 0.5, 0.55); cr.rectangle(13, 9, 7, 12); cr.fill()
+        cr.set_source_rgb(0.2, 0.2, 0.2); cr.rectangle(15, 6, 3, 3); cr.fill()
+        random.seed(3)
+        for _ in range(14):
+            cr.rectangle(4 + random.random() * 8, 4 + random.random() * 8, 1.2, 1.2)
+        cr.fill()
+    elif nome == "linha":
+        cr.set_source_rgb(0.1, 0.1, 0.1); cr.set_line_width(2); cr.move_to(5, 19); cr.line_to(19, 5); cr.stroke()
+    elif nome == "retangulo":
+        cr.set_source_rgb(0.1, 0.1, 0.1); cr.set_line_width(2); cr.rectangle(5, 7, 14, 11); cr.stroke()
+    elif nome == "elipse":
+        cr.set_source_rgb(0.1, 0.1, 0.1); cr.set_line_width(2)
+        cr.save(); cr.translate(12, 12); cr.scale(8, 5.5); cr.arc(0, 0, 1, 0, 2 * math.pi); cr.restore(); cr.stroke()
+
+
+class Paint(Gtk.Window):
+    def __init__(self, arquivo=None):
+        super().__init__()
+        self.set_default_size(1000, 720)
+        self.set_icon_name("applications-graphics")
+        self.connect("delete-event", self.ao_fechar)
+
+        self.ferramenta, self.tamanho = "lapis", 3
+        self.cor = [rgb("#000000"), rgb("#ffffff")]  # principal, secundária
+        self.arquivo, self.modificado = None, False
+        self.desfazer = []
+        self.arrasto = None  # (x0, y0, botão)
+        self.ultimo = None
+        self.previa = None
+        self.spray_id = None
+        self.img = self.nova_imagem(LARG, ALT)
+
+        caixa = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.add(caixa)
+        caixa.pack_start(self.menu(), False, False, 0)
+
+        meio = Gtk.Box()
+        caixa.pack_start(meio, True, True, 0)
+        meio.pack_start(self.caixa_ferramentas(), False, False, 4)
+
+        self.area = Gtk.DrawingArea()
+        self.area.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK |
+                             Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
+        self.area.connect("draw", self.desenha)
+        self.area.connect("button-press-event", self.aperta)
+        self.area.connect("motion-notify-event", self.move)
+        self.area.connect("button-release-event", self.solta)
+        fundo = Gtk.EventBox()
+        fundo.override_background_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(0.5, 0.5, 0.5, 1))
+        alinha = Gtk.Box()
+        alinha.set_border_width(6)
+        alinha.pack_start(self.area, False, False, 0)
+        quadro = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        quadro.pack_start(alinha, False, False, 0)
+        fundo.add(quadro)
+        rolagem = Gtk.ScrolledWindow()
+        rolagem.add(fundo)
+        meio.pack_start(rolagem, True, True, 0)
+
+        caixa.pack_start(self.barra_cores(), False, False, 4)
+        self.status = Gtk.Label(xalign=0)
+        self.status.set_margin_start(8)
+        caixa.pack_start(self.status, False, False, 2)
+
+        if arquivo:
+            self.abre(arquivo)
+        self.ajusta_area()
+        self.atualiza_titulo()
+
+    # ---------- interface ----------
+    def menu(self):
+        barra = Gtk.MenuBar()
+        grupo = Gtk.AccelGroup()
+        self.add_accel_group(grupo)
+
+        def item(sub, rotulo, f, atalho=None):
+            it = Gtk.MenuItem(label=rotulo)
+            it.connect("activate", lambda *_: f())
+            if atalho:
+                k, m = Gtk.accelerator_parse(atalho)
+                it.add_accelerator("activate", grupo, k, m, Gtk.AccelFlags.VISIBLE)
+            sub.append(it)
+
+        arq = Gtk.Menu()
+        item(arq, "Novo", self.novo, "<Control>n")
+        item(arq, "Abrir...", self.abrir, "<Control>o")
+        item(arq, "Salvar", self.salvar, "<Control>s")
+        item(arq, "Salvar como...", self.salvar_como, "<Control><Shift>s")
+        arq.append(Gtk.SeparatorMenuItem())
+        item(arq, "Sair", lambda: self.ao_fechar() or self.destroy(), "<Control>q")
+        ed = Gtk.Menu()
+        item(ed, "Desfazer", self.desfaz, "<Control>z")
+        item(ed, "Limpar imagem", self.limpa, "<Control><Shift>n")
+        aj = Gtk.Menu()
+        item(aj, "Sobre o Paint", self.sobre)
+        for rotulo, sub in (("Arquivo", arq), ("Editar", ed), ("Ajuda", aj)):
+            m = Gtk.MenuItem(label=rotulo)
+            m.set_submenu(sub)
+            barra.append(m)
+        return barra
+
+    def caixa_ferramentas(self):
+        caixa = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        caixa.set_border_width(4)
+        grade = Gtk.Grid(row_spacing=2, column_spacing=2)
+        grupo = None
+        for i, (nome, dica) in enumerate(FERRAMENTAS):
+            b = Gtk.RadioButton.new_from_widget(grupo)
+            grupo = grupo or b
+            b.set_mode(False)
+            b.set_tooltip_text(dica)
+            d = Gtk.DrawingArea()
+            d.set_size_request(24, 24)
+            d.connect("draw", lambda w, cr, n=nome: icone(cr, n))
+            b.add(d)
+            b.connect("toggled", self.troca_ferramenta, nome)
+            grade.attach(b, i % 2, i // 2, 1, 1)
+        caixa.pack_start(grade, False, False, 0)
+        caixa.pack_start(Gtk.Separator(), False, False, 4)
+        grupo = None
+        for t in TAMANHOS:
+            b = Gtk.RadioButton.new_from_widget(grupo)
+            grupo = grupo or b
+            b.set_mode(False)
+            b.set_tooltip_text(f"Espessura {t}")
+            d = Gtk.DrawingArea()
+            d.set_size_request(50, 14)
+            d.connect("draw", lambda w, cr, t=t: (cr.set_source_rgb(0, 0, 0), cr.rectangle(4, 7 - t / 2, 42, t), cr.fill()))
+            b.add(d)
+            b.set_active(t == self.tamanho)
+            b.connect("toggled", self.troca_tamanho, t)
+            caixa.pack_start(b, False, False, 0)
+        return caixa
+
+    def barra_cores(self):
+        caixa = Gtk.Box(spacing=8)
+        caixa.set_border_width(4)
+        self.amostra = Gtk.DrawingArea()
+        self.amostra.set_size_request(40, 36)
+        self.amostra.connect("draw", self.desenha_amostra)
+        caixa.pack_start(self.amostra, False, False, 4)
+        grade = Gtk.Grid(row_spacing=2, column_spacing=2)
+        for i, hexa in enumerate(PALETA):
+            ev = Gtk.EventBox()
+            d = Gtk.DrawingArea()
+            d.set_size_request(17, 17)
+            d.connect("draw", lambda w, cr, c=rgb(hexa): self.desenha_cor(cr, c))
+            ev.add(d)
+            ev.set_tooltip_text("Esquerdo: cor principal. Direito: secundária.")
+            ev.connect("button-press-event", self.escolhe_cor, rgb(hexa))
+            grade.attach(ev, i % 14, i // 14, 1, 1)
+        caixa.pack_start(grade, False, False, 0)
+        return caixa
+
+    def desenha_cor(self, cr, c):
+        cr.set_source_rgb(*c); cr.rectangle(1, 1, 15, 15); cr.fill()
+        cr.set_source_rgb(0.3, 0.3, 0.3); cr.set_line_width(1); cr.rectangle(0.5, 0.5, 16, 16); cr.stroke()
+
+    def desenha_amostra(self, w, cr):
+        for (x, y), c in (((14, 14), self.cor[1]), ((2, 2), self.cor[0])):
+            cr.set_source_rgb(*c); cr.rectangle(x, y, 22, 18); cr.fill()
+            cr.set_source_rgb(0.2, 0.2, 0.2); cr.set_line_width(1); cr.rectangle(x + 0.5, y + 0.5, 21, 17); cr.stroke()
+
+    def troca_ferramenta(self, b, nome):
+        if b.get_active():
+            self.ferramenta = nome
+
+    def troca_tamanho(self, b, t):
+        if b.get_active():
+            self.tamanho = t
+
+    def escolhe_cor(self, ev, e, c):
+        self.cor[0 if e.button == 1 else 1] = c
+        self.amostra.queue_draw()
+
+    # ---------- imagem ----------
+    def nova_imagem(self, w, h):
+        img = cairo.ImageSurface(cairo.FORMAT_RGB24, w, h)
+        cr = cairo.Context(img)
+        cr.set_source_rgb(1, 1, 1)
+        cr.paint()
+        return img
+
+    def copia(self):
+        c = cairo.ImageSurface(cairo.FORMAT_RGB24, self.img.get_width(), self.img.get_height())
+        cr = cairo.Context(c)
+        cr.set_source_surface(self.img)
+        cr.paint()
+        return c
+
+    def guarda(self):
+        self.desfazer.append(self.copia())
+        del self.desfazer[:-25]
+        self.modificado = True
+        self.atualiza_titulo()
+
+    def desfaz(self):
+        if self.desfazer:
+            self.img = self.desfazer.pop()
+            self.ajusta_area()
+            self.area.queue_draw()
+
+    def limpa(self):
+        self.guarda()
+        cr = cairo.Context(self.img)
+        cr.set_source_rgb(*self.cor[1])
+        cr.paint()
+        self.area.queue_draw()
+
+    def ajusta_area(self):
+        self.area.set_size_request(self.img.get_width(), self.img.get_height())
+
+    def desenha(self, w, cr):
+        cr.set_source_surface(self.img)
+        cr.paint()
+        if self.previa:
+            self.previa(cr)
+
+    def pincela(self, cr, botao):
+        cr.set_source_rgb(*(self.cor[1] if (botao == 3 or self.ferramenta == "borracha") else self.cor[0]))
+        if self.ferramenta == "lapis":
+            cr.set_line_width(1)
+            cr.set_antialias(cairo.ANTIALIAS_NONE)
+        elif self.ferramenta == "borracha":
+            cr.set_line_width(self.tamanho * 2 + 6)
+            cr.set_line_cap(cairo.LINE_CAP_SQUARE)
+        else:
+            cr.set_line_width(self.tamanho)
+            cr.set_line_cap(cairo.LINE_CAP_ROUND)
+            cr.set_line_join(cairo.LINE_JOIN_ROUND)
+
+    def forma(self, cr, x0, y0, x1, y1):
+        if self.ferramenta == "linha":
+            cr.move_to(x0, y0); cr.line_to(x1, y1)
+        elif self.ferramenta == "retangulo":
+            cr.rectangle(min(x0, x1), min(y0, y1), abs(x1 - x0), abs(y1 - y0))
+        elif self.ferramenta == "elipse":
+            w, h = abs(x1 - x0), abs(y1 - y0)
+            if w > 1 and h > 1:
+                cr.save(); cr.translate((x0 + x1) / 2, (y0 + y1) / 2); cr.scale(w / 2, h / 2)
+                cr.arc(0, 0, 1, 0, 2 * math.pi); cr.restore()
+        cr.stroke()
+
+    # ---------- mouse ----------
+    def aperta(self, w, ev):
+        if ev.type != Gdk.EventType.BUTTON_PRESS or ev.button not in (1, 3):
+            return
+        x, y, b = int(ev.x), int(ev.y), ev.button
+        if self.ferramenta == "gotas":
+            self.pega_cor(x, y, b)
+            return
+        self.guarda()
+        if self.ferramenta == "balde":
+            self.balde(x, y, self.cor[0 if b == 1 else 1])
+            self.area.queue_draw()
+            return
+        self.arrasto, self.ultimo = (x, y, b), (x, y)
+        if self.ferramenta in ("lapis", "pincel", "borracha"):
+            self.traco(x, y, x + 0.01, y)
+        elif self.ferramenta == "spray":
+            self.borrifa()
+            self.spray_id = GLib.timeout_add(30, self.borrifa)
+
+    def move(self, w, ev):
+        x, y = int(ev.x), int(ev.y)
+        if 0 <= x < self.img.get_width() and 0 <= y < self.img.get_height():
+            self.status.set_text(f"{x}, {y}")
+        if not self.arrasto:
+            return
+        if self.ferramenta in ("lapis", "pincel", "borracha"):
+            self.traco(*self.ultimo, x, y)
+        elif self.ferramenta in ("linha", "retangulo", "elipse"):
+            x0, y0, b = self.arrasto
+
+            def previa(cr, x1=x, y1=y):
+                self.pincela(cr, b)
+                self.forma(cr, x0, y0, x1, y1)
+            self.previa = previa
+            self.area.queue_draw()
+        self.ultimo = (x, y)
+
+    def solta(self, w, ev):
+        if not self.arrasto:
+            return
+        x0, y0, b = self.arrasto
+        if self.ferramenta in ("linha", "retangulo", "elipse"):
+            cr = cairo.Context(self.img)
+            self.pincela(cr, b)
+            self.forma(cr, x0, y0, int(ev.x), int(ev.y))
+        if self.spray_id:
+            GLib.source_remove(self.spray_id)
+            self.spray_id = None
+        self.arrasto = self.previa = None
+        self.area.queue_draw()
+
+    def traco(self, x0, y0, x1, y1):
+        cr = cairo.Context(self.img)
+        self.pincela(cr, self.arrasto[2])
+        if self.ferramenta == "lapis":
+            x0, y0, x1, y1 = x0 + 0.5, y0 + 0.5, x1 + 0.5, y1 + 0.5
+        cr.move_to(x0, y0)
+        cr.line_to(x1, y1)
+        cr.stroke()
+        self.area.queue_draw()
+
+    def borrifa(self):
+        if not self.arrasto:
+            return False
+        x, y = self.ultimo
+        cr = cairo.Context(self.img)
+        cr.set_source_rgb(*self.cor[0 if self.arrasto[2] == 1 else 1])
+        raio = self.tamanho * 3 + 6
+        for _ in range(12 + self.tamanho * 3):
+            a, r = random.uniform(0, 2 * math.pi), raio * math.sqrt(random.random())
+            cr.rectangle(int(x + r * math.cos(a)), int(y + r * math.sin(a)), 1, 1)
+        cr.fill()
+        self.area.queue_draw()
+        return True
+
+    def pega_cor(self, x, y, b):
+        self.img.flush()
+        d, st = self.img.get_data(), self.img.get_stride()
+        i = y * st + x * 4
+        if 0 <= x < self.img.get_width() and 0 <= y < self.img.get_height():
+            self.cor[0 if b == 1 else 1] = (d[i + 2] / 255, d[i + 1] / 255, d[i] / 255)
+            self.amostra.queue_draw()
+
+    def balde(self, x, y, cor):
+        """Preenche a área da mesma cor (varredura por linhas, sem recursão)."""
+        w, h = self.img.get_width(), self.img.get_height()
+        if not (0 <= x < w and 0 <= y < h):
+            return
+        self.img.flush()
+        d, st = self.img.get_data(), self.img.get_stride()
+        nova = bytes((round(cor[2] * 255), round(cor[1] * 255), round(cor[0] * 255), 255))
+        alvo = bytes(d[y * st + x * 4: y * st + x * 4 + 3])
+        if alvo == nova[:3]:
+            return
+        pilha = [(x, y)]
+        while pilha:
+            px, py = pilha.pop()
+            base = py * st
+            esq = px
+            while esq > 0 and d[base + (esq - 1) * 4: base + (esq - 1) * 4 + 3] == alvo:
+                esq -= 1
+            dir_ = px
+            while dir_ < w - 1 and d[base + (dir_ + 1) * 4: base + (dir_ + 1) * 4 + 3] == alvo:
+                dir_ += 1
+            if d[base + px * 4: base + px * 4 + 3] != alvo:
+                continue
+            d[base + esq * 4: base + (dir_ + 1) * 4] = nova * (dir_ - esq + 1)
+            for ny in (py - 1, py + 1):
+                if 0 <= ny < h:
+                    nb, dentro = ny * st, False
+                    for nx in range(esq, dir_ + 1):
+                        igual = d[nb + nx * 4: nb + nx * 4 + 3] == alvo
+                        if igual and not dentro:
+                            pilha.append((nx, ny))
+                        dentro = igual
+        self.img.mark_dirty()
+
+    # ---------- arquivos ----------
+    def atualiza_titulo(self):
+        nome = os.path.basename(self.arquivo) if self.arquivo else "Sem título"
+        self.set_title(f"{'*' if self.modificado else ''}{nome} - Paint")
+
+    def novo(self):
+        if self.confirma_descartar():
+            self.img, self.arquivo, self.modificado, self.desfazer = self.nova_imagem(LARG, ALT), None, False, []
+            self.ajusta_area()
+            self.area.queue_draw()
+            self.atualiza_titulo()
+
+    def abre(self, caminho):
+        try:
+            if caminho.lower().endswith(".png"):
+                origem = cairo.ImageSurface.create_from_png(caminho)
+                w, h = origem.get_width(), origem.get_height()
+                desenha = lambda cr: cr.set_source_surface(origem)  # noqa: E731
+            else:
+                from gi.repository import GdkPixbuf
+                pb = GdkPixbuf.Pixbuf.new_from_file(caminho)
+                w, h = pb.get_width(), pb.get_height()
+                desenha = lambda cr: Gdk.cairo_set_source_pixbuf(cr, pb, 0, 0)  # noqa: E731
+        except Exception as e:  # noqa: BLE001
+            self.aviso(f"Não consegui abrir a imagem:\n{e}")
+            return
+        img = self.nova_imagem(w, h)
+        cr = cairo.Context(img)
+        desenha(cr)
+        cr.paint()
+        self.img, self.arquivo, self.modificado, self.desfazer = img, caminho, False, []
+        self.ajusta_area()
+        self.area.queue_draw()
+        self.atualiza_titulo()
+
+    def dialogo(self, acao, titulo):
+        d = Gtk.FileChooserDialog(title=titulo, parent=self, action=acao)
+        d.add_buttons("Cancelar", Gtk.ResponseType.CANCEL,
+                      "Abrir" if acao == Gtk.FileChooserAction.OPEN else "Salvar", Gtk.ResponseType.OK)
+        f = Gtk.FileFilter()
+        f.set_name("Imagens")
+        for p in ("*.png", "*.jpg", "*.jpeg"):
+            f.add_pattern(p)
+        d.add_filter(f)
+        d.set_current_folder(os.path.expanduser("~"))
+        if acao == Gtk.FileChooserAction.SAVE:
+            d.set_do_overwrite_confirmation(True)
+            d.set_current_name("desenho.png")
+        r = d.run()
+        caminho = d.get_filename() if r == Gtk.ResponseType.OK else None
+        d.destroy()
+        return caminho
+
+    def abrir(self):
+        if self.confirma_descartar():
+            c = self.dialogo(Gtk.FileChooserAction.OPEN, "Abrir imagem")
+            if c:
+                self.abre(c)
+
+    def salvar(self):
+        if not self.arquivo or not self.arquivo.lower().endswith(".png"):
+            return self.salvar_como()
+        self.img.write_to_png(self.arquivo)
+        self.modificado = False
+        self.atualiza_titulo()
+        return True
+
+    def salvar_como(self):
+        c = self.dialogo(Gtk.FileChooserAction.SAVE, "Salvar imagem")
+        if not c:
+            return False
+        if not c.lower().endswith(".png"):
+            c += ".png"
+        self.arquivo = c
+        return self.salvar()
+
+    def confirma_descartar(self):
+        if not self.modificado:
+            return True
+        d = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION,
+                              text="Salvar as alterações do desenho?")
+        d.add_buttons("Não salvar", Gtk.ResponseType.NO, "Cancelar", Gtk.ResponseType.CANCEL,
+                      "Salvar", Gtk.ResponseType.YES)
+        r = d.run()
+        d.destroy()
+        if r == Gtk.ResponseType.YES:
+            return self.salvar()
+        return r == Gtk.ResponseType.NO
+
+    def ao_fechar(self, *_):
+        if self.confirma_descartar():
+            Gtk.main_quit()
+            return False
+        return True
+
+    def aviso(self, texto):
+        d = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.WARNING,
+                              buttons=Gtk.ButtonsType.OK, text=texto)
+        d.run()
+        d.destroy()
+
+    def sobre(self):
+        d = Gtk.AboutDialog(transient_for=self, modal=True)
+        d.set_program_name("Paint do hobbOS")
+        d.set_comments("Desenhe como antigamente.\nFeito do zero para o hobbOS, em Python com GTK 3.")
+        d.set_website("https://github.com/carriel2/hobbOS")
+        d.set_logo_icon_name("applications-graphics")
+        d.run()
+        d.destroy()
+
+
+if __name__ == "__main__":
+    Paint(sys.argv[1] if len(sys.argv) > 1 else None).show_all()
+    Gtk.main()

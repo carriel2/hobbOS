@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- HobbOS: uma barra de tarefas embaixo, com Iniciar | janelas | bandeja | som | relógio -->
+<!-- HobbOS: uma barra de tarefas embaixo, com Iniciar | Início rápido | janelas | bandeja | som | relógio -->
 <channel name="xfce4-panel" version="1.0">
   <property name="configver" type="int" value="2"/>
   <property name="panels" type="array">
@@ -14,6 +14,10 @@
       <property name="enable-struts" type="bool" value="true"/>
       <property name="plugin-ids" type="array">
         <value type="int" value="1"/>
+        <value type="int" value="7"/>
+        <value type="int" value="8"/>
+        <value type="int" value="9"/>
+        <value type="int" value="10"/>
         <value type="int" value="2"/>
         <value type="int" value="3"/>
         <value type="int" value="4"/>
@@ -28,19 +32,45 @@
       <property name="button-icon" type="string" value="/usr/share/pixmaps/hobbos-start.svg"/>
       <property name="show-button-title" type="bool" value="true"/>
       <property name="show-button-icon" type="bool" value="true"/>
+      <!-- botão de sair do menu abre a janela "Desligar o computador"; sem bloqueio de tela no live -->
+      <property name="command-logout" type="string" value="hobbos-desligar"/>
+      <property name="show-command-logout" type="bool" value="true"/>
+      <property name="show-command-lockscreen" type="bool" value="false"/>
+      <property name="show-command-switchuser" type="bool" value="false"/>
       <property name="favorites" type="array">
         <value type="string" value="firefox.desktop"/>
         <value type="string" value="thunar.desktop"/>
         <value type="string" value="xfce4-terminal.desktop"/>
+        <value type="string" value="hobbos-salvar-arquivos.desktop"/>
+        <value type="string" value="hobbos-relatorio.desktop"/>
         <value type="string" value="gparted.desktop"/>
-        <value type="string" value="gsmartcontrol.desktop"/>
-        <value type="string" value="hobbos-testdisk.desktop"/>
         <value type="string" value="hobbos-photorec.desktop"/>
+        <value type="string" value="hobbos-testdisk.desktop"/>
         <value type="string" value="hobbos-clonezilla.desktop"/>
+        <value type="string" value="hobbos-paint.desktop"/>
         <value type="string" value="hobbos-campo-minado.desktop"/>
         <value type="string" value="sol.desktop"/>
-        <value type="string" value="hobbos-boas-vindas.desktop"/>
       </property>
+    </property>
+    <!-- Início rápido: Firefox, arquivos e terminal ao lado do Iniciar -->
+    <property name="plugin-7" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="firefox.desktop"/>
+      </property>
+    </property>
+    <property name="plugin-8" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="thunar.desktop"/>
+      </property>
+    </property>
+    <property name="plugin-9" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="terminal.desktop"/>
+      </property>
+    </property>
+    <property name="plugin-10" type="string" value="separator">
+      <property name="expand" type="bool" value="false"/>
+      <property name="style" type="uint" value="1"/>
     </property>
     <property name="plugin-2" type="string" value="tasklist">
       <property name="show-labels" type="bool" value="true"/>

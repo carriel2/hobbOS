@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Disquinho
+Comment=Mascote do hobbOS: dicas e aviso de pendrive
+Exec=sh -c "sleep 20; exec hobbos-disquinho"
+OnlyShowIn=XFCE;
+NoDisplay=true
+X-XFCE-Autostart-Override=true

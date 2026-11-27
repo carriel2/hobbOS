@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Firefox
+Comment=Navegar na internet
+Exec=firefox %u
+Icon=firefox

@@ -171,3 +171,6 @@ fastfetch
 python-gobject
 aisleriot
 python-cairo
+# ── HobbOS: leva 1 (protetor de tela, sons nos diálogos) ──
+xscreensaver
+libcanberra
