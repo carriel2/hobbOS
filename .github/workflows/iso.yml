@@ -1,0 +1,94 @@
+# Gera a ISO do hobbOS, roda o smoke test (BIOS e UEFI) e, numa tag v*, publica a release.
+name: ISO
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: ["profile/**", "tests/**", "branding/**", ".github/workflows/iso.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: iso-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  iso:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Liberar espaço no runner
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Habilitar KVM para o QEMU
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - name: Gerar a ISO (mkarchiso num container Arch)
+        run: |
+          docker run --rm --privileged -v "$PWD:/w" -w /w archlinux:latest bash -c '
+            set -e
+            pacman -Syu --noconfirm --needed archiso >/dev/null
+            mkarchiso -v -w /tmp/work -o out profile
+            cd out && sha256sum hobbos-*.iso > SHA256SUMS && cat SHA256SUMS'
+          sudo chown -R "$USER" out
+          ls -la out
+
+      - name: Smoke test (BIOS e UEFI)
+        run: |
+          docker run --rm --privileged --device /dev/kvm -v "$PWD:/w" -w /w archlinux:latest bash -c '
+            set -e
+            pacman -Syu --noconfirm --needed qemu-base edk2-ovmf python dosfstools >/dev/null
+            ok=0
+            tests/smoke-test.sh out/hobbos-*.iso bios out/smoke-bios || ok=1
+            tests/smoke-test.sh out/hobbos-*.iso uefi out/smoke-uefi || ok=1
+            rm -f out/smoke-*/*.img
+            exit $ok'
+
+      - name: Teste de persistência (pendrive virtual, BIOS e UEFI)
+        run: |
+          docker run --rm --privileged --device /dev/kvm -v "$PWD:/w" -w /w archlinux:latest bash -c '
+            set -e
+            pacman -Syu --noconfirm --needed qemu-base edk2-ovmf python >/dev/null
+            ok=0
+            tests/persistence-test.sh out/hobbos-*.iso bios out/smoke-persist-bios || ok=1
+            tests/persistence-test.sh out/hobbos-*.iso uefi out/smoke-persist-uefi || ok=1
+            rm -f out/smoke-persist-*/*.img
+            exit $ok'
+
+      - name: Capturas de tela do teste
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capturas-smoke-test
+          path: out/smoke-*/*.png
+          if-no-files-found: ignore
+
+      - name: ISO como artefato (PRs e execução manual)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: hobbos-iso
+          path: |
+            out/hobbos-*.iso
+            out/SHA256SUMS
+          retention-days: 7
+          compression-level: 0
+
+      - name: Publicar a release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" out/hobbos-*.iso out/SHA256SUMS \
+            --title "hobbOS $GITHUB_REF_NAME" --generate-notes

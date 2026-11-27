@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Guardar arquivos neste pendrive
+Comment=Criar a área de persistência: arquivos e configurações continuam lá depois de desligar
+Exec=hobbos-persistencia
+Icon=media-removable
+Terminal=false
+Categories=System;
