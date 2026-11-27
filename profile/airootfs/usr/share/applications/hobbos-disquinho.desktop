@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Disquinho
+Comment=Chamar o mascote do hobbOS com uma dica
+Exec=hobbos-disquinho --demo
+Icon=media-floppy
+Categories=System;

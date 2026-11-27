@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!-- Wallpaper "Lago" do hobbOS: arte original -->
+  <defs>
+    <linearGradient id="ceu" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f62c9"/>
+      <stop offset="0.55" stop-color="#6fa8ec"/>
+      <stop offset="1" stop-color="#cfe4fb"/>
+    </linearGradient>
+    <linearGradient id="agua" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5d93d8"/>
+      <stop offset="1" stop-color="#1d4f9c"/>
+    </linearGradient>
+    <linearGradient id="serra1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9fb6d6"/>
+      <stop offset="1" stop-color="#7d97bd"/>
+    </linearGradient>
+    <linearGradient id="serra2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5f7fae"/>
+      <stop offset="1" stop-color="#3e5f92"/>
+    </linearGradient>
+    <linearGradient id="grama" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5fae45"/>
+      <stop offset="1" stop-color="#2f7a2a"/>
+    </linearGradient>
+    <filter id="borra"><feGaussianBlur stdDeviation="14"/></filter>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#ceu)"/>
+  <!-- nuvens -->
+  <g fill="#ffffff" opacity="0.85" filter="url(#borra)">
+    <ellipse cx="420" cy="190" rx="240" ry="42"/>
+    <ellipse cx="560" cy="170" rx="160" ry="36"/>
+    <ellipse cx="1420" cy="250" rx="280" ry="40"/>
+    <ellipse cx="1600" cy="230" rx="150" ry="30"/>
+  </g>
+  <!-- serras ao fundo, com neve no pico -->
+  <path d="M0 640 L220 470 L360 560 L560 360 L760 560 L900 480 L1080 610 L1260 400 L1460 560 L1620 470 L1920 620 L1920 700 L0 700 Z" fill="url(#serra1)"/>
+  <path d="M520 400 L560 360 L604 404 L586 416 L566 398 L548 418 Z M1222 438 L1260 400 L1302 442 L1280 450 L1262 434 L1244 452 Z" fill="#f4f8ff"/>
+  <path d="M0 700 L160 590 L330 660 L520 560 L700 670 L880 600 L1060 690 L1240 590 L1420 680 L1620 600 L1800 670 L1920 630 L1920 720 L0 720 Z" fill="url(#serra2)"/>
+  <!-- lago com o reflexo das serras -->
+  <rect y="720" width="1920" height="300" fill="url(#agua)"/>
+  <g opacity="0.28">
+    <path d="M0 720 L160 830 L330 760 L520 860 L700 750 L880 820 L1060 730 L1240 830 L1420 740 L1620 820 L1800 750 L1920 790 L1920 720 Z" fill="#2a4f86"/>
+  </g>
+  <g stroke="#e8f2ff" stroke-width="3" stroke-linecap="round" opacity="0.55">
+    <line x1="300" y1="770" x2="420" y2="770"/>
+    <line x1="900" y1="800" x2="1060" y2="800"/>
+    <line x1="1400" y1="760" x2="1480" y2="760"/>
+    <line x1="620" y1="860" x2="760" y2="860"/>
+    <line x1="1500" y1="880" x2="1680" y2="880"/>
+  </g>
+  <!-- margem de grama na frente -->
+  <path d="M0 900 C 380 860 760 880 1120 920 C 1440 956 1700 900 1920 910 L1920 1080 L0 1080 Z" fill="url(#grama)"/>
+  <!-- pinheiros -->
+  <g fill="#1f5a24">
+    <path d="M150 930 L190 820 L230 930 Z M160 880 L190 790 L220 880 Z"/>
+    <path d="M260 950 L295 860 L330 950 Z M268 905 L295 830 L322 905 Z"/>
+    <path d="M1700 935 L1745 810 L1790 935 Z M1712 880 L1745 780 L1778 880 Z"/>
+  </g>
+</svg>

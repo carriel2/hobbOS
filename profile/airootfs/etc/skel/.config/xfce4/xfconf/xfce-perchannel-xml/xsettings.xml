@@ -3,9 +3,14 @@
   <property name="Net" type="empty">
     <property name="ThemeName" type="string" value="HobbOS-Luna"/>
     <property name="IconThemeName" type="string" value="nuoveXT2"/>
+    <!-- sons do hobbOS nos diálogos (erro, aviso, pergunta...), sem som a cada clique -->
+    <property name="SoundThemeName" type="string" value="hobbos"/>
+    <property name="EnableEventSounds" type="bool" value="true"/>
+    <property name="EnableInputFeedbackSounds" type="bool" value="false"/>
   </property>
   <property name="Gtk" type="empty">
     <property name="FontName" type="string" value="DejaVu Sans 9"/>
     <property name="MonospaceFontName" type="string" value="DejaVu Sans Mono 10"/>
+    <property name="Modules" type="string" value="canberra-gtk-module"/>
   </property>
 </channel>

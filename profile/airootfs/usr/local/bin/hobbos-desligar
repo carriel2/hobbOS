@@ -1,0 +1,257 @@
+#!/usr/bin/env python3
+"""Janela "Desligar o computador" do hobbOS, no espírito dos anos 2000: a tela
+escurece por trás e aparecem três botões redondos grandes (Suspender, Reiniciar,
+Desligar). Ligada ao botão de sair do menu Iniciar."""
+import math
+import subprocess
+
+import cairo
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk  # noqa: E402
+
+LOGO = "/usr/share/pixmaps/hobbos-start.svg"
+SOM = "/usr/share/sounds/hobbos/stereo/desktop-logout.wav"
+
+ACOES = [
+    # rótulo, cor do botão (r, g, b), desenho, comando, toca o som de saída?
+    ("Suspender", (0.93, 0.70, 0.13), "lua", ["systemctl", "suspend"], False),
+    ("Reiniciar", (0.20, 0.66, 0.25), "seta", ["systemctl", "reboot"], True),
+    ("Desligar", (0.86, 0.20, 0.13), "power", ["systemctl", "poweroff"], True),
+]
+
+
+def degrade(cr, w, h, cores):
+    g = cairo.LinearGradient(0, 0, 0, h)
+    for pos, cor in cores:
+        g.add_color_stop_rgb(pos, *cor)
+    cr.set_source(g)
+    cr.rectangle(0, 0, w, h)
+    cr.fill()
+
+
+class BotaoRedondo(Gtk.EventBox):
+    def __init__(self, rotulo, cor, desenho, ao_clicar):
+        super().__init__()
+        self.cor, self.desenho, self.sobre = cor, desenho, False
+        caixa = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.area = Gtk.DrawingArea()
+        self.area.set_size_request(64, 64)
+        self.area.connect("draw", self.desenha)
+        caixa.pack_start(self.area, False, False, 0)
+        lbl = Gtk.Label()
+        lbl.set_markup(f"<span color='#ffffff' weight='bold'>{rotulo}</span>")
+        caixa.pack_start(lbl, False, False, 0)
+        self.add(caixa)
+        self.set_visible_window(False)
+        self.connect("enter-notify-event", lambda *_: self.realce(True))
+        self.connect("leave-notify-event", lambda *_: self.realce(False))
+        self.connect("button-release-event", lambda *_: ao_clicar())
+
+    def realce(self, sim):
+        self.sobre = sim
+        self.area.queue_draw()
+
+    def desenha(self, area, cr):
+        cx, cy, r = 32, 32, 27
+        k = 1.18 if self.sobre else 1.0
+        base = tuple(min(1.0, c * k) for c in self.cor)
+        claro = tuple(min(1.0, c * 1.5 + 0.15) for c in base)
+        escuro = tuple(c * 0.55 for c in base)
+        # sombra
+        cr.set_source_rgba(0, 0, 0, 0.35)
+        cr.arc(cx + 2, cy + 3, r, 0, 2 * math.pi)
+        cr.fill()
+        # bolinha com brilho
+        g = cairo.RadialGradient(cx - 9, cy - 11, 3, cx, cy, r)
+        g.add_color_stop_rgb(0, *claro)
+        g.add_color_stop_rgb(0.55, *base)
+        g.add_color_stop_rgb(1, *escuro)
+        cr.set_source(g)
+        cr.arc(cx, cy, r, 0, 2 * math.pi)
+        cr.fill_preserve()
+        cr.set_source_rgb(1, 1, 1)
+        cr.set_line_width(2.5)
+        cr.stroke()
+        # reflexo
+        cr.save()
+        cr.translate(cx, cy - 13)
+        cr.scale(1.0, 0.45)
+        cr.arc(0, 0, 16, 0, 2 * math.pi)
+        cr.restore()
+        cr.set_source_rgba(1, 1, 1, 0.28)
+        cr.fill()
+        # símbolo
+        cr.set_source_rgb(1, 1, 1)
+        cr.set_line_width(4.5)
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        if self.desenho == "power":
+            cr.arc(cx, cy + 2, 12, math.radians(-55), math.radians(235))
+            cr.stroke()
+            cr.move_to(cx, cy - 13)
+            cr.line_to(cx, cy + 1)
+            cr.stroke()
+        elif self.desenho == "seta":
+            cr.arc(cx, cy, 12, math.radians(-30), math.radians(250))
+            cr.stroke()
+            ax, ay = cx + 12 * math.cos(math.radians(-30)), cy + 12 * math.sin(math.radians(-30))
+            cr.move_to(ax + 7, ay - 2)
+            cr.line_to(ax - 1, ay - 9)
+            cr.line_to(ax - 4, ay + 3)
+            cr.close_path()
+            cr.fill()
+        else:  # lua
+            cr.arc(cx, cy, 13, 0, 2 * math.pi)
+            cr.fill()
+            g2 = cairo.RadialGradient(cx - 9, cy - 11, 3, cx, cy, r)
+            g2.add_color_stop_rgb(0, *claro)
+            g2.add_color_stop_rgb(0.55, *base)
+            g2.add_color_stop_rgb(1, *escuro)
+            cr.set_source(g2)
+            cr.arc(cx + 7, cy - 6, 12, 0, 2 * math.pi)
+            cr.fill()
+
+
+class Desligar:
+    def __init__(self):
+        self.fundo = None
+        # Como antigamente: "fotografa" a tela, deixa cinza e escura e usa de fundo.
+        # (Não depende de compositor nem de transparência.)
+        raiz = Gdk.get_default_root_window()
+        foto = Gdk.pixbuf_get_from_window(raiz, 0, 0, raiz.get_width(), raiz.get_height())
+        if foto is not None:
+            self.cinza = foto.copy()
+            foto.saturate_and_pixelate(self.cinza, 0.0, False)
+            self.fundo = Gtk.Window(title="")
+            self.fundo.set_app_paintable(True)
+            self.fundo.set_decorated(False)
+            self.fundo.set_skip_taskbar_hint(True)
+            self.fundo.set_skip_pager_hint(True)
+            self.fundo.set_keep_above(True)
+            self.fundo.connect("draw", self.escurece)
+            self.fundo.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            self.fundo.connect("button-press-event", lambda *_: self.fecha())
+            self.fundo.fullscreen()
+            self.fundo.show()
+
+        self.jan = Gtk.Window(title="Desligar o computador")
+        self.jan.set_decorated(False)
+        self.jan.set_keep_above(True)
+        if self.fundo:
+            self.jan.set_transient_for(self.fundo)
+            self.jan.set_modal(True)
+            self.jan.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+        self.jan.set_skip_taskbar_hint(True)
+        self.jan.set_position(Gtk.WindowPosition.CENTER_ALWAYS)
+        self.jan.set_default_size(440, 250)
+        self.jan.set_resizable(False)
+        self.jan.connect("destroy", Gtk.main_quit)
+        self.jan.connect("key-press-event", self.tecla)
+
+        caixa = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.jan.add(caixa)
+
+        topo = Gtk.DrawingArea()
+        topo.set_size_request(-1, 52)
+        topo.connect("draw", self.desenha_topo)
+        caixa.pack_start(topo, False, False, 0)
+        self.logo = GdkPixbuf.Pixbuf.new_from_file_at_size(LOGO, 38, 38)
+
+        self.meio = Gtk.Box(spacing=36)
+        self.meio.set_halign(Gtk.Align.CENTER)
+        self.meio.set_valign(Gtk.Align.CENTER)
+        for rotulo, cor, desenho, cmd, som in ACOES:
+            self.meio.pack_start(BotaoRedondo(rotulo, cor, desenho, lambda c=cmd, s=som: self.executa(c, s)), False, False, 0)
+        self.msg = Gtk.Label()
+        self.msg.set_markup("<span color='#ffffff' size='large' weight='bold'>Até logo!</span>")
+        pilha = Gtk.Overlay()
+        meio_fundo = Gtk.DrawingArea()
+        meio_fundo.connect("draw", lambda a, cr: degrade(cr, a.get_allocated_width(), a.get_allocated_height(),
+                                                          [(0, (0.33, 0.52, 0.86)), (1, (0.20, 0.38, 0.75))]))
+        pilha.add(meio_fundo)
+        pilha.add_overlay(self.meio)
+        pilha.add_overlay(self.msg)
+        caixa.pack_start(pilha, True, True, 0)
+
+        base = Gtk.Box()
+        base.set_size_request(-1, 50)
+        base_fundo = Gtk.Overlay()
+        bf = Gtk.DrawingArea()
+        bf.connect("draw", self.desenha_base)
+        base_fundo.add(bf)
+        cancelar = Gtk.Button(label="Cancelar")
+        cancelar.set_halign(Gtk.Align.END)
+        cancelar.set_valign(Gtk.Align.CENTER)
+        cancelar.set_margin_end(14)
+        cancelar.connect("clicked", lambda *_: self.fecha())
+        base_fundo.add_overlay(cancelar)
+        base.pack_start(base_fundo, True, True, 0)
+        caixa.pack_start(base, False, False, 0)
+
+        self.jan.show_all()
+        self.msg.hide()
+        self.jan.present()
+
+    def escurece(self, w, cr):
+        Gdk.cairo_set_source_pixbuf(cr, self.cinza, 0, 0)
+        cr.paint()
+        cr.set_source_rgba(0.0, 0.02, 0.08, 0.35)
+        cr.paint()
+
+    def desenha_topo(self, area, cr):
+        w, h = area.get_allocated_width(), area.get_allocated_height()
+        degrade(cr, w, h, [(0, (0.05, 0.22, 0.60)), (0.5, (0.09, 0.32, 0.78)), (1, (0.05, 0.22, 0.60))])
+        cr.select_font_face("DejaVu Sans", cairo.FONT_SLANT_OBLIQUE, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(18)
+        cr.set_source_rgb(1, 1, 1)
+        cr.move_to(16, 33)
+        cr.show_text("Desligar o computador")
+        Gdk.cairo_set_source_pixbuf(cr, self.logo, w - 50, 7)
+        cr.paint()
+
+    def desenha_base(self, area, cr):
+        w, h = area.get_allocated_width(), area.get_allocated_height()
+        degrade(cr, w, h, [(0, (0.05, 0.22, 0.60)), (1, (0.04, 0.16, 0.45))])
+        cr.set_source_rgb(1.0, 0.69, 0.29)
+        cr.rectangle(0, 0, w, 2)
+        cr.fill()
+
+    def tecla(self, w, ev):
+        if ev.keyval == Gdk.KEY_Escape:
+            self.fecha()
+
+    def fecha(self):
+        if self.fundo:
+            self.fundo.destroy()
+        self.jan.destroy()
+
+    def executa(self, cmd, som):
+        if not som:
+            self.fecha()
+            subprocess.Popen(cmd, start_new_session=True)
+            return
+        self.meio.hide()
+        self.msg.show()
+        try:
+            p = subprocess.Popen(["pw-play", SOM])
+        except OSError:
+            p = None
+
+        espera = [0]
+
+        def fim():
+            espera[0] += 1
+            if p and p.poll() is None and espera[0] < 30:
+                return True  # espera o som acabar (no máximo ~4,5 s)
+            subprocess.Popen(cmd, start_new_session=True)
+            Gtk.main_quit()
+            return False
+        GLib.timeout_add(150, fim)
+
+
+if __name__ == "__main__":
+    Desligar()
+    Gtk.main()

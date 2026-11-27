@@ -29,8 +29,16 @@ fi
 accel=(-enable-kvm -cpu host)
 [[ -w /dev/kvm ]] || accel=(-cpu max)
 
+# Um disco vazio que vira um "Windows" falso dentro do teste, e um pendrive FAT
+# que é conectado com o sistema já rodando (para o Disquinho e o Salvar meus arquivos)
+rm -f "$OUT/windows.img" "$OUT/pendrive.img"
+truncate -s 512M "$OUT/windows.img"
+mkfs.fat -C -n PENDRIVE "$OUT/pendrive.img" 262144 >/dev/null || { echo "FALHA: precisa do mkfs.fat (dosfstools)"; exit 1; }
+
 qemu-system-x86_64 "${accel[@]}" -smp 2 -m 2048 \
   -cdrom "$ISO" -boot d "${firmware[@]}" \
+  -drive file="$OUT/windows.img",if=virtio,format=raw \
+  -device qemu-xhci,id=xhci \
   -display none -vga std \
   -nic user,model=virtio-net-pci \
   -audiodev none,id=snd0 -device intel-hda -device hda-duplex,audiodev=snd0 \
@@ -147,6 +155,44 @@ guest "runuser -u hobbos -- env XDG_RUNTIME_DIR=/run/user/1000 DISPLAY=:0 XAUTHO
 sleep 12
 screenshot campo-minado
 check "Campo Minado aberto"         "pgrep -u hobbos -f hobbos-campo-minado"  "^[0-9]+"
+
+# Leva 1: desligar, Disquinho, sons, protetor de tela, Início rápido, wallpapers, Paint,
+# Relatório do PC e Salvar meus arquivos
+check "sons do sistema"             "ls /usr/share/sounds/hobbos/stereo | grep -c wav"   "^8$"
+check "wallpapers extras"           "ls /usr/share/backgrounds/hobbos | grep -c png"    "^4$"
+user_check "Início rápido no painel" "xfconf-query -c xfce4-panel -p /plugins/plugin-7" "^launcher"
+user_check "Iniciar abre o Desligar" "xfconf-query -c xfce4-panel -p /plugins/plugin-1/command-logout" "^hobbos-desligar"
+check "protetor de tela rodando"    "pgrep -u hobbos -x xscreensaver"            "^[0-9]+"
+check "Disquinho rodando"           "pgrep -u hobbos -f hobbos-disquinho"        "^[0-9]+"
+user_check "Relatório do PC gera HTML" "hobbos-relatorio --html /tmp/relatorio.html && grep -o \"Relatório do PC\" /tmp/relatorio.html | head -1" "Relatório do PC"
+
+# Windows falso: NTFS com uma conta "Maria" e as pastas de sempre
+guest "mkntfs -Q -F -L Windows /dev/vda >/dev/null && mkdir -p /mnt/w && mount -t ntfs3 /dev/vda /mnt/w && \
+  mkdir -p /mnt/w/Users/Maria/Desktop /mnt/w/Users/Maria/Documents /mnt/w/Users/Maria/Pictures/Ferias /mnt/w/Users/Public /mnt/w/Windows && \
+  echo arroz feijao > '/mnt/w/Users/Maria/Desktop/lista de compras.txt' && echo Maria > /mnt/w/Users/Maria/Documents/curriculo.txt && \
+  head -c 3000000 /dev/urandom > /mnt/w/Users/Maria/Pictures/Ferias/praia.jpg && umount /mnt/w && udevadm trigger /dev/vda && udevadm settle" 90 >/dev/null
+monitor "drive_add 0 if=none,id=pend,file=$OUT/pendrive.img,format=raw"
+monitor "device_add usb-storage,id=pend0,drive=pend,bus=xhci.0"
+sleep 8
+screenshot pendrive-disquinho
+check "pendrive conectado"          "lsblk -no LABEL,TRAN | tr -s ' '"            "PENDRIVE"
+user_check "Salvar meus arquivos (modo automático)" "hobbos-salvar-arquivos --auto" "Copiados [1-9][0-9]* arquivos"
+check "cópia chegou ao pendrive"    "find /run/media/hobbos -path \"*Backup hobbOS - Maria*\" -name praia.jpg -size +2M" "praia.jpg"
+check "Windows aberto só leitura"   "findmnt -no OPTIONS /dev/vda"               "^ro,"
+
+guest "runuser -u hobbos -- env XDG_RUNTIME_DIR=/run/user/1000 DISPLAY=:0 XAUTHORITY=/home/hobbos/.Xauthority setsid -f hobbos-paint >/dev/null 2>&1" 15 >/dev/null
+sleep 6
+check "Paint aberto"                "pgrep -u hobbos -f hobbos-paint"            "^[0-9]+"
+user_check "protetor de tela ativa" "xscreensaver-command -activate 2>&1"        "activating|blanking"
+sleep 8
+screenshot protetor-de-tela
+as_user "xscreensaver-command -deactivate" >/dev/null
+guest "runuser -u hobbos -- env XDG_RUNTIME_DIR=/run/user/1000 DISPLAY=:0 XAUTHORITY=/home/hobbos/.Xauthority setsid -f hobbos-desligar >/dev/null 2>&1" 15 >/dev/null
+sleep 6
+screenshot desligar
+check "janela Desligar aberta"      "pgrep -u hobbos -f hobbos-desligar"         "^[0-9]+"
+guest "pkill -u hobbos -f hobbos-desligar" >/dev/null
+echo "-- tempos da janela de boas-vindas:"; guest "cat /home/hobbos/.cache/hobbos/boas-vindas.log" | sed 's/^/   /'
 
 echo "== resultado: $fails falha(s). Capturas em $OUT"
 exit $(( fails > 0 ))

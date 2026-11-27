@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!-- Wallpaper "Pôr do sol" do hobbOS: arte original -->
+  <defs>
+    <linearGradient id="ceu" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a1b5c"/>
+      <stop offset="0.35" stop-color="#7a2e7a"/>
+      <stop offset="0.62" stop-color="#e2574c"/>
+      <stop offset="0.8" stop-color="#ffa64a"/>
+      <stop offset="1" stop-color="#ffd27a"/>
+    </linearGradient>
+    <radialGradient id="sol" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff6d0"/>
+      <stop offset="0.55" stop-color="#ffd36b"/>
+      <stop offset="1" stop-color="#ff9a3a"/>
+    </radialGradient>
+    <radialGradient id="brilho" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffe7a0" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#ffb060" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="morro1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6b2f63"/>
+      <stop offset="1" stop-color="#3d1c4a"/>
+    </linearGradient>
+    <linearGradient id="morro2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f1d4f"/>
+      <stop offset="1" stop-color="#22103a"/>
+    </linearGradient>
+    <linearGradient id="morro3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f0f33"/>
+      <stop offset="1" stop-color="#120822"/>
+    </linearGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#ceu)"/>
+  <circle cx="1240" cy="700" r="420" fill="url(#brilho)"/>
+  <circle cx="1240" cy="700" r="150" fill="url(#sol)"/>
+  <!-- nuvens finas atravessando o sol -->
+  <g fill="#ffcf8a" opacity="0.55">
+    <rect x="980" y="640" width="520" height="10" rx="5"/>
+    <rect x="1060" y="672" width="380" height="8" rx="4"/>
+    <rect x="300" y="420" width="460" height="12" rx="6" fill="#f08a6a" opacity="0.6"/>
+    <rect x="380" y="452" width="300" height="9" rx="4.5" fill="#f08a6a" opacity="0.6"/>
+    <rect x="1500" y="300" width="340" height="10" rx="5" fill="#c66a8a" opacity="0.6"/>
+  </g>
+  <!-- três camadas de morros -->
+  <path d="M0 760 C 260 680 520 700 780 740 C 1040 780 1300 690 1560 700 C 1740 708 1840 730 1920 750 L1920 1080 L0 1080 Z" fill="url(#morro1)"/>
+  <path d="M0 860 C 300 780 560 800 860 850 C 1140 896 1420 820 1700 830 C 1810 834 1880 850 1920 860 L1920 1080 L0 1080 Z" fill="url(#morro2)"/>
+  <path d="M0 960 C 360 900 700 930 1020 960 C 1320 988 1620 930 1920 950 L1920 1080 L0 1080 Z" fill="url(#morro3)"/>
+  <!-- passarinhos -->
+  <g fill="none" stroke="#2a1235" stroke-width="4" stroke-linecap="round">
+    <path d="M520 360 q 14 -14 28 0 q 14 -14 28 0"/>
+    <path d="M590 320 q 10 -10 20 0 q 10 -10 20 0"/>
+    <path d="M470 300 q 8 -8 16 0 q 8 -8 16 0"/>
+  </g>
+</svg>

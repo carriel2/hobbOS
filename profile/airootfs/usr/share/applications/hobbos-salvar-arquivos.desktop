@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Salvar meus arquivos
+Comment=Copiar Documentos, Fotos e Área de trabalho de um Windows para um HD externo
+Exec=hobbos-salvar-arquivos
+Icon=document-save
+Terminal=false
+Categories=System;Utility;

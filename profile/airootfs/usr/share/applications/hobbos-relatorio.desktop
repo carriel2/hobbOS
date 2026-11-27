@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Relatório do PC
+Comment=Processador, memória, temperatura e saúde dos discos numa tela só
+Exec=hobbos-relatorio
+Icon=computer
+Terminal=false
+Categories=System;Monitor;

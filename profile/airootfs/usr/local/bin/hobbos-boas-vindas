@@ -2,28 +2,47 @@
 """Janela de boas-vindas do hobbOS: aparece ao entrar no desktop, com atalhos
 para o que o sistema faz. Desmarcar "Mostrar ao iniciar" vale só para esta sessão
 live (o pendrive não guarda nada)."""
-import os
-import subprocess
-import sys
+import time
 
-import cairo
-import gi
+T0 = time.monotonic()
+import os  # noqa: E402
+import subprocess  # noqa: E402
+import sys  # noqa: E402
+
+LOG = os.path.expanduser("~/.cache/hobbos/boas-vindas.log")
+
+
+def marca(msg):
+    """Tempo de cada etapa da abertura (para investigar lentidão no primeiro login)."""
+    try:
+        os.makedirs(os.path.dirname(LOG), exist_ok=True)
+        with open(LOG, "a") as f:
+            f.write(f"{time.monotonic() - T0:7.2f}s {msg}\n")
+    except OSError:
+        pass
+
+
+marca(f"início (pid {os.getpid()})")
+import cairo  # noqa: E402
+import gi  # noqa: E402
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gdk, GdkPixbuf, Gtk  # noqa: E402
 
+marca("GTK importado")
 CONF = os.path.expanduser("~/.config/hobbos")
 NAO_MOSTRAR = os.path.join(CONF, "sem-boas-vindas")
 LOGO = "/usr/share/pixmaps/hobbos-start.svg"
 REPO = "https://github.com/carriel2/hobbOS"
 
 ATALHOS = [
-    ("firefox", "Navegar na internet", "Firefox em português", ["firefox"]),
-    ("gparted", "Cuidar dos discos", "Particionar, formatar e verificar (GParted)", ["gparted"]),
+    ("document-save", "Salvar meus arquivos", "Copiar Documentos e Fotos de um Windows para um HD externo",
+     ["hobbos-salvar-arquivos"]),
     ("drive-harddisk", "Recuperar arquivos apagados", "PhotoRec, para fotos e documentos", ["gtk-launch", "hobbos-photorec"]),
-    ("utilities-terminal", "Abrir o terminal", "Para quem gosta de linha de comando", ["xfce4-terminal"]),
+    ("computer", "Relatório do PC", "Processador, memória, temperatura e saúde dos discos", ["hobbos-relatorio"]),
+    ("firefox", "Navegar na internet", "Firefox em português", ["firefox"]),
     ("applications-games", "Jogar Campo Minado", "Uma pausa, como nos velhos tempos", ["hobbos-campo-minado"]),
     ("help-about", "Sobre o hobbOS", "Código, créditos e novidades no GitHub", ["firefox", REPO]),
 ]
@@ -127,5 +146,17 @@ class BoasVindas(Gtk.Window):
 if __name__ == "__main__":
     if "--autostart" in sys.argv and os.path.exists(NAO_MOSTRAR):
         sys.exit(0)
-    BoasVindas().show_all()
+    jan = BoasVindas()
+    marca("janela montada")
+    jan.connect("map-event", lambda *_: marca("janela mapeada"))
+    pintou = []
+
+    def primeira_pintura(*_):
+        if not pintou:
+            pintou.append(1)
+            marca("primeira pintura")
+        return False  # nunca interromper o desenho da janela
+    jan.connect("draw", primeira_pintura)
+    jan.show_all()
+    marca("show_all feito")
     Gtk.main()

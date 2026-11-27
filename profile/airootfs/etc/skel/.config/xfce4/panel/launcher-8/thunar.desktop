@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Arquivos
+Comment=Abrir o gerenciador de arquivos
+Exec=thunar
+Icon=org.xfce.thunar

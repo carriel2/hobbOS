@@ -1,0 +1,8 @@
+[Sound Theme]
+Name=hobbOS
+Comment=Sons do hobbOS, sintetizados por branding/system-sounds.py
+Inherits=freedesktop
+Directories=stereo
+
+[stereo]
+OutputProfile=stereo
