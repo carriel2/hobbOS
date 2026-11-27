@@ -38,7 +38,7 @@ DICAS = [
     "Desconfia da memória RAM? Reinicie e escolha <b>Memtest86+</b> no menu de boot.",
     "<b>Ctrl+Alt+T</b> abre o terminal. Ele começa mostrando a logo do hobbOS!",
     "Deixe o computador parado uns minutos para ver o <b>protetor de tela</b> com os canos 3D.",
-    "Por padrão nada fica gravado: o hobbOS roda na memória e tudo some ao desligar. Salve o que importa num pendrive.",
+    "Por padrão nada fica gravado: tudo some ao desligar. Quer guardar? Abra <b>Guardar arquivos neste pendrive</b> e depois inicie pela opção <b>com persistência</b>.",
     "Um disquete como eu guardava <b>1,44 MB</b>. Um pendrive de 8 GB guarda o mesmo que uns 5.400 de nós!",
     "O hobbOS é feito por hobby e o código está aberto em <b>github.com/carriel2/hobbOS</b>.",
     "O <b>GParted</b> cria, apaga e redimensiona partições. Confira duas vezes antes de clicar em Aplicar!",

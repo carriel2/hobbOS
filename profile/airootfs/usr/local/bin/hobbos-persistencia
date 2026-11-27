@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""Guardar arquivos neste pendrive: cria a área de persistência do hobbOS.
+
+O hobbOS gravado com dd/Rufus (modo DD) ocupa só o começo do pendrive. Este app
+cria uma partição ext4 com o rótulo HOBBOS_DADOS no espaço livre que sobra no fim.
+Iniciando pela opção "HobbOS live com persistência" do menu de boot, tudo o que muda
+no sistema (arquivos, configurações, programas instalados) passa a ficar guardado ali.
+
+Não apaga nada: só usa o espaço que está sobrando depois da imagem do hobbOS.
+
+Uso: hobbos-persistencia            janela (pede permissão de administrador sozinho)
+     hobbos-persistencia --verificar só diz se dá para criar (não precisa de root)
+     hobbos-persistencia --criar     cria sem perguntar (root; usado nos testes)
+"""
+import json
+import os
+import subprocess
+import sys
+import time
+
+ROTULO = "HOBBOS_DADOS"
+MINIMO = 512 * 1024 ** 2  # não vale a pena com menos de 512 MB
+
+
+def roda(cmd, **kw):
+    return subprocess.run(cmd, capture_output=True, text=True, **kw)
+
+
+def tabela(disco):
+    """Lê a tabela de partições. Logo depois do boot o udev pode estar com o disco
+    travado examinando-o, então espera um pouco e tenta de novo."""
+    for _ in range(10):
+        roda(["udevadm", "settle", "--timeout=5"])
+        r = roda(["sfdisk", "-J", disco])
+        if r.returncode == 0 and r.stdout.strip():
+            return json.loads(r.stdout).get("partitiontable", {})
+        time.sleep(1)
+    return {}
+
+
+def humano(n):
+    for u in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024 or u == "TB":
+            return f"{n:.0f} {u}" if u == "B" else f"{n:.1f} {u}".replace(".", ",")
+        n /= 1024
+
+
+def situacao():
+    """Devolve (pode_criar, mensagem, dados) olhando de onde o hobbOS foi iniciado."""
+    existe = roda(["blkid", "-L", ROTULO]).stdout.strip()
+    if existe:
+        ativa = "cow_label=" + ROTULO in open("/proc/cmdline").read()
+        if ativa:
+            return False, f"A persistência já está ligada ({existe}). Seus arquivos estão sendo guardados.", None
+        return False, (f"A área de persistência já existe ({existe}).\nPara usar, reinicie e escolha "
+                       "\"HobbOS live com persistência\" no menu de boot."), None
+    origem = roda(["findmnt", "-no", "SOURCE", "/run/archiso/bootmnt"]).stdout.strip()
+    if not origem:
+        return False, "Não achei de onde o hobbOS foi iniciado.", None
+    if origem.startswith("/dev/sr"):
+        return False, "O hobbOS foi iniciado de um CD/DVD (ou de uma ISO numa máquina virtual): não dá para gravar nele.", None
+    # a ISO híbrida pode aparecer montada pelo disco inteiro (/dev/sdb) ou pela partição 1 (/dev/sdb1)
+    pai = roda(["lsblk", "-no", "PKNAME", origem]).stdout.strip()
+    tipo = roda(["lsblk", "-dno", "TYPE", origem]).stdout.strip()
+    if pai:
+        disco = "/dev/" + pai
+    elif tipo == "disk":
+        disco = origem
+    else:
+        return False, f"{origem} não fica dentro de um disco com partições.", None
+    info = tabela(disco)
+    if not info:
+        return False, "Não consegui ler a tabela de partições do pendrive (precisa ser administrador).", None
+    if info.get("label") != "dos":
+        return False, ("Este pendrive não foi gravado no modo DD (talvez Ventoy ou Rufus no modo ISO). "
+                       "A persistência só funciona com o hobbOS gravado com dd, Etcher ou Rufus em modo DD."), None
+    setor = info.get("sectorsize", 512)
+    partes = info.get("partitions", [])
+    if len(partes) >= 4:
+        return False, "O pendrive já tem 4 partições: não cabe mais nenhuma.", None
+    fim = max((p["start"] + p["size"] for p in partes), default=2048)
+    total = int(roda(["blockdev", "--getsz", disco]).stdout.strip() or 0)  # setores de 512
+    livre = (total * 512) - fim * setor
+    if livre < MINIMO:
+        return False, f"Sobram só {humano(max(livre, 0))} no pendrive. É preciso pelo menos {humano(MINIMO)}.", None
+    inicio = -(-fim // 2048) * 2048  # alinha em 1 MiB
+    return True, (f"Dá para criar uma área de <b>{humano(livre)}</b> no fim do pendrive {disco}.\n"
+                  "Nada do que já está nele é apagado."), {"disco": disco, "inicio": inicio, "livre": livre}
+
+
+def cria(dados):
+    disco, inicio = dados["disco"], dados["inicio"]
+    for _ in range(10):  # o udev pode estar com o disco travado por um instante
+        roda(["udevadm", "settle", "--timeout=5"])
+        r = roda(["sfdisk", "--append", "--no-reread", "--no-tell-kernel", disco],
+                 input=f"start={inicio}, type=83\n")
+        if r.returncode == 0:
+            break
+        time.sleep(1)
+    else:
+        raise RuntimeError("sfdisk: " + (r.stderr or r.stdout).strip())
+    partes = tabela(disco).get("partitions", [])
+    nova = max(partes, key=lambda p: p["start"])["node"]
+    # avisa o kernel só da partição nova (as outras estão em uso pelo sistema live)
+    roda(["partx", "-a", disco])
+    roda(["udevadm", "settle"])
+    if not os.path.exists(nova):
+        raise RuntimeError(f"o sistema não enxergou a partição nova {nova}")
+    r = roda(["mkfs.ext4", "-F", "-q", "-L", ROTULO, "-E", "lazy_itable_init=1", nova])
+    if r.returncode != 0:
+        raise RuntimeError("mkfs.ext4: " + (r.stderr or r.stdout).strip())
+    roda(["udevadm", "settle"])
+    return nova
+
+
+def janela():
+    if os.geteuid() != 0:
+        # reabre como administrador (no live não pede senha), mantendo a tela
+        env = [f"DISPLAY={os.environ.get('DISPLAY', ':0')}", f"XAUTHORITY={os.environ.get('XAUTHORITY', '')}"]
+        os.execvp("pkexec", ["pkexec", "--disable-internal-agent", "env", *env, sys.argv[0]])
+    import gi
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import GLib, Gtk
+
+    pode, msg, dados = situacao()
+    d = Gtk.MessageDialog(message_type=Gtk.MessageType.QUESTION if pode else Gtk.MessageType.INFO,
+                          text="Guardar arquivos neste pendrive")
+    d.set_title("Persistência do hobbOS")
+    d.format_secondary_markup(
+        msg + ("\n\nDepois de criar, reinicie e escolha <b>HobbOS live com persistência</b> no menu de boot. "
+               "Suas pastas, configurações e programas instalados vão continuar lá." if pode else ""))
+    if pode:
+        d.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Criar área de persistência", Gtk.ResponseType.OK)
+    else:
+        d.add_buttons("Fechar", Gtk.ResponseType.CLOSE)
+    r = d.run()
+    d.destroy()
+    if pode and r == Gtk.ResponseType.OK:
+        try:
+            nova = cria(dados)
+            texto, tipo = (f"Pronto! A área de persistência foi criada em {nova}.\n\n"
+                           "Reinicie e escolha \"HobbOS live com persistência\" no menu de boot."), Gtk.MessageType.INFO
+        except RuntimeError as e:
+            texto, tipo = f"Não deu certo:\n{GLib.markup_escape_text(str(e))}", Gtk.MessageType.ERROR
+        f = Gtk.MessageDialog(message_type=tipo, buttons=Gtk.ButtonsType.OK, text="Persistência do hobbOS")
+        f.format_secondary_markup(texto)
+        f.run()
+        f.destroy()
+
+
+if __name__ == "__main__":
+    if "--verificar" in sys.argv:
+        pode, msg, _ = situacao()
+        print(msg.replace("<b>", "").replace("</b>", ""))
+        sys.exit(0 if pode else 1)
+    if "--criar" in sys.argv:
+        pode, msg, dados = situacao()
+        if not pode:
+            print(msg)
+            sys.exit(1)
+        print("criada:", cria(dados))
+        sys.exit(0)
+    janela()

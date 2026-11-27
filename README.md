@@ -3,6 +3,7 @@
 ![Arch Linux](https://img.shields.io/badge/Arch_Linux-1793D1?style=for-the-badge&logo=arch-linux&logoColor=white)
 ![XFCE](https://img.shields.io/badge/XFCE-2284F2?style=for-the-badge&logo=xfce&logoColor=white)
 ![Status](https://img.shields.io/badge/Status-Em_Desenvolvimento-brightgreen?style=for-the-badge)
+[![ISO](https://github.com/carriel2/hobbOS/actions/workflows/iso.yml/badge.svg)](https://github.com/carriel2/hobbOS/actions/workflows/iso.yml)
 
 O **hobbOS** é uma distribuição Linux customizada (respin) baseada no **Arch Linux**. Nasceu como projeto de estudo sobre como um sistema operacional é montado, e junta a base moderna e rolling-release do Arch com um visual nostálgico dos anos 2000, inspirado no Windows XP.
 
@@ -41,7 +42,19 @@ Ele roda direto do pendrive, sem instalar nada: um sistema live para usar e para
 * **2 GB de RAM** ou mais.
 * **Pendrive de 4 GB** ou DVD: a ISO tem cerca de 1,7 GB, maior que um CD.
 
+**Baixe a ISO** na página de [releases](https://github.com/carriel2/hobbOS/releases) (junto vai o `SHA256SUMS` para conferir o download).
+
 Para gravar no pendrive, no Linux: `sudo dd if=hobbos-*.iso of=/dev/sdX bs=4M status=progress oflag=sync` (troque `sdX` pelo pendrive; **apaga tudo nele**). No Windows, use o [Rufus](https://rufus.ie) em modo DD ou o [Ventoy](https://www.ventoy.net).
+
+### 💾 Guardar arquivos no pendrive (persistência)
+
+Por padrão o hobbOS roda na memória e nada fica gravado. Para guardar arquivos, configurações e programas instalados entre um uso e outro:
+
+1. Grave a ISO no modo DD (dd, Etcher ou Rufus em modo DD) num pendrive maior que a ISO.
+2. No hobbOS, abra **Guardar arquivos neste pendrive** no menu Iniciar. Ele cria a partição `HOBBOS_DADOS` no espaço que sobra no fim do pendrive, sem apagar nada.
+3. Reinicie e escolha **HobbOS live com persistência** no menu de boot.
+
+Ao gravar uma versão nova da ISO no pendrive, a tabela de partições é reescrita, então a área de persistência precisa ser criada de novo.
 
 ## 🛠️ Como gerar a ISO
 
@@ -79,7 +92,17 @@ tests/smoke-test.sh out/hobbos-*.iso bios
 tests/smoke-test.sh out/hobbos-*.iso uefi
 ```
 
-Com KVM (`/dev/kvm`), cada modo leva uns 3 minutos.
+Com KVM (`/dev/kvm`), cada modo leva uns 4 minutos.
+
+[`tests/persistence-test.sh`](tests/persistence-test.sh) testa a persistência como num pendrive de verdade:
+1. copia a ISO para um "pendrive" virtual de 4 GB e dá boot por USB;
+2. cria a área de persistência;
+3. reinicia pela entrada com persistência e grava um arquivo;
+4. reinicia de novo e confere que o arquivo continua lá.
+
+### No GitHub Actions
+
+O workflow [`iso.yml`](.github/workflows/iso.yml) gera a ISO num container Arch e roda o smoke test em BIOS e UEFI (o runner tem KVM). Isso acontece em todo pull request que mexe no perfil. Numa tag `v*`, ele publica a **release** com a ISO e o `SHA256SUMS`.
 
 ## 📁 Estrutura
 
