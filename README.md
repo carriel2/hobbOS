@@ -21,9 +21,11 @@ Ele roda direto do pendrive, sem instalar nada: um sistema live para usar e para
 * **Kit de resgate** no menu Iniciar: GParted, GSmartControl, TestDisk (recuperar partições), PhotoRec (recuperar arquivos), Clonezilla (clonar e salvar disco), ddrescue, `chntpw` (redefinir senha do Windows), `ntfsfix`, memtest86+ no menu de boot e as ferramentas de terminal do Arch.
 * **BIOS e UEFI**.
 
-| Firefox com o tema | GParted |
+| Boot | Menu Iniciar |
 |---|---|
-| ![Firefox](docs/screenshots/firefox.png) | ![GParted](docs/screenshots/gparted.png) |
+| ![Tela de boot do hobbOS](docs/screenshots/boot.png) | ![Menu Iniciar](docs/screenshots/menu-iniciar.png) |
+
+![Terminal com fastfetch, GParted, Campo Minado e Paciência](docs/screenshots/classicos.png)
 
 ## 💻 Requisitos para rodar
 
@@ -77,9 +79,9 @@ Com KVM (`/dev/kvm`), cada modo leva uns 3 minutos.
 |---|---|
 | [`profile/`](profile/) | Perfil archiso: pacotes, configurações do sistema live, boot |
 | [`branding/`](branding/) | Arte original em SVG (wallpaper, ícone, menu e animação de boot), o gerador do som de inicialização e `render.sh` para gerar tudo |
-| [`tests/`](tests/) | Smoke test no QEMU |
+| [`tests/`](tests/) | Smoke test no QEMU e `vitrine.sh`, que grava o boot e tira as capturas de divulgação |
 | [`infra/`](infra/) | VM de build no OpenStack com OpenTofu |
-| [`docs/screenshots/`](docs/screenshots/) | Capturas geradas pelo smoke test |
+| [`docs/screenshots/`](docs/screenshots/) | Capturas do sistema rodando no QEMU |
 
 ## 🎨 Créditos
 
